@@ -106,7 +106,7 @@ def find_high_point(y_values_starvation,factor=0.8):
     if len(y_values_starvation)>1:
         for idx, y in enumerate(y_values_starvation):
             # print(f"maximum: {max(y_values_starvation)}")
-            if y>0.8*( max(y_values_starvation) ):
+            if y>factor*( max(y_values_starvation) ):
                 # print(f"80% of max: {0.8*max(y_values_starvation)}")
                 point_high_x = idx #returns index of points where both conditions are true for the first time
                 point_high_y = y

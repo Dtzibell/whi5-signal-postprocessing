@@ -1,8 +1,6 @@
-import polars as pl
 from polars import col as c
 import numpy as np
 import matplotlib.pyplot as plt
-from polars.exceptions import ColumnNotFoundError  # .exceptions instead of .polars?
 from scipy import signal
 from scipy.signal import find_peaks
 from Array_Pairs_Index_to_Time import pair_peaks
@@ -72,7 +70,7 @@ for path in PATH_TO_FILES:
 
             # TZ - each cell has an individual starvation onset which is dependent on its birth time
             individual_starvation_onset = MINUTES_STARVATION_START - min(x_time)
-            individual_end_of_starvation = MINUTES_STARVATION_END - min(x_time)
+            individual_starvation_end = MINUTES_STARVATION_END - min(x_time)
 
             # TZ - inflection points refer to the points at which 50% of Whi5 is exported from the nucleus
             inflection_points = find_inflection_points(y_signal_scaled)
@@ -91,42 +89,21 @@ for path in PATH_TO_FILES:
 
 
             # TZ - find values in starvation range
-            y_signal_starvation = [
-                y
-                for i, y in enumerate(y_signal_scaled)
-                if individual_starvation_onset
-                <= i * IMAGING_RATE
-                <= individual_end_of_starvation
-            ]
-            first_deriv_smooth = signal.savgol_filter(
+            y_signal_starvation = np.array(y_signal_scaled[individual_starvation_onset:individual_starvation_end])
+            first_derivative = signal.savgol_filter(
                 y_signal_scaled, window_length=10, polyorder=3, deriv=1
             )
-            first_deriv_smooth_starvation = [
-                s
-                for i, s in enumerate(first_deriv_smooth)
-                if individual_starvation_onset
-                <= i * IMAGING_RATE
-                <= individual_end_of_starvation
-            ]
-            y_signal_starvation, first_deriv_smooth_starvation = (
-                np.array(y_signal_starvation),
-                np.array(first_deriv_smooth_starvation),
-            )
-            first_deriv_smooth_starvation_scaled = first_deriv_smooth_starvation / max(
-                first_deriv_smooth_starvation
+            first_derivative_starvation = np.array(first_derivative[individual_starvation_onset:individual_starvation_end])
+
+            first_derivative_starvation_scaled = first_derivative_starvation / max(
+                first_derivative_starvation
             )
 
             # TZ - find low and high points
             point_low_x, point_low_y = find_change_point(
-                y_signal_starvation, first_deriv_smooth_starvation_scaled, 4, 0.005
+                y_signal_starvation, first_derivative_starvation_scaled, 4, 0.005
             )
             point_high_x, point_high_y = find_high_point(y_signal_starvation)
-
-            # TZ - tester prints
-            # print(f"low_x: {point_low_x}")
-            # print(f"low_y: {point_low_y}")
-            # print(f"high_x: {point_high_x}")
-            # print(f"high_y: {point_high_y}")
 
             if (
                 point_high_x is not None
@@ -157,14 +134,6 @@ for path in PATH_TO_FILES:
                 Slope_RiseOfSlope = np.gradient(
                     y_values_points_RiseOfSlope, x_values_points_RiseOfSlope
                 )
-
-                # TZ - tester prints
-                # print(f"Slope: {Slope_RiseOfSlope}")
-                # print(f"y_values: {y_values_points_RiseOfSlope}")
-                # print(f"low point x,y: {point_low_x, point_low_y}")
-                # print(f"y_starvation: {y_signal_starvation}")
-                # print(f"x values: {x_values_points_RiseOfSlope}")
-                # print(f"x_time:{list(x_time)}")
 
                 # TZ - TODO: can implement selection of points through growth of values. Sometimes works better,\
                 #       because slope growth model is quite bad at recognizing instant reimports.
