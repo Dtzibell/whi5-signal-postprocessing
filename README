@@ -1,0 +1,42 @@
+Before running:
+- All output files are located in the selected directory, in the folder named Results.
+Make sure there is no other folder named Results in your selected directory, as it may be overwritten.
+- To make inputs static, File_Importer.py line 143 has all manipulable inputs listed. Change values within parentheses.
+- for convenience, can set directory for file selection on line 157. Default directory is location of the code.
+
+To run, navigate with cd to the folder the codes are in, and type python code_name.py in the terminal.
+The code we run is CV_Loop, the rest are functions it needs.
+
+plug and run:
+- if using anaconda, pip install PyQt6 through conda console before running. If not, may need to install all packages through cmd.
+- all functions used here are core to the packages and should not deprecate soon.
+
+Warning:
+- multiple file selection only works if files are in one directory
+- code only works with starvation intervals
+- FRET mode not implemented
+
+
+
+Dependencies:
+Python 3.12.4
+PyQt 6.8.1
+numpy 1.26.4
+polars 1.26
+matplotlib 3.8.4
+scipy 1.13.1
+
+if starts deprecating:
+- install pyenv (for macOS/linux: pip install pyenv, for windows follow
+https://github.com/pyenv-win/pyenv-win/blob/master/docs/installation.md#powershell)
+
+- navigate to the folder you wish to use for this code
+
+- give in pyenv local 3.12 (sets the python version of this directory (without parent or children) to 3.12).
+If you do not have python 3.12, install by pyenv install 3.12, and then set the version.
+
+- set up a venv: python -m venv
+
+- paste in all the files in this code to that directory
+
+- install the dependencies mentioned
