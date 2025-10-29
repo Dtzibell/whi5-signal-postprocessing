@@ -248,21 +248,21 @@ def gather_input():
     #     print(value)
     #     print(type(value))
 
-    return path_to_files, path_to_directory, starvation_start, starvation_end, acquisition_rate, is_fret, channel_1, \
+    return path_to_files, path_to_directory, starvation_start, starvation_end, acquisition_rate, channel_1, \
             channel_2 \
             # is_starvation
     #### I/O ####
 
 
-def setup_directory(concat_path_name):
+def setup_directory(saving_directory, name_of_file):
 
     """
     creates directories necessary for programmes output
-    :param file_name: string of the name of the file
-    :param path_to_directory: pathlib.Path to saving directory
+    :param path_name: path to directory where the output is to be saved + the name of the original experiment
     :return: pathlib.Paths of each directory
     """
 
+    concat_path_name = saving_directory / name_of_file
     figures_path = concat_path_name / "Figures"
     figures_path.mkdir(parents=True, exist_ok=True)
     single_csvs_path = concat_path_name / 'Single_Cell_CSVs'

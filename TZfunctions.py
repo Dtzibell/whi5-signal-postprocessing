@@ -9,37 +9,24 @@ Created on Sat Feb 22 21:54:45 2025
 
 import numpy as np
 from scipy import ndimage as ndim
+import polars as pl
+from polars import col as c
 
-def normalize_to_1(cv_array):
+def normalize_to_1(smoothened_array):
     """
     normalizes the array to, making smallest value 0 and larges value 1.
     :param cv_array: np.array of covariance values
     :return: normalized array
     """
 
-    if len(cv_array)>1: #if length == 1, the value becomes 0 and leads to errors
-        #removes background
-        cv_array_temp = cv_array-min(cv_array)
-        if max(cv_array)!=0: #prevent division by 0
-            #normalizes the values to 1
-            cv_array_temp = cv_array_temp / max(cv_array)
-            cv_array = cv_array_temp / max(cv_array_temp)
-            return cv_array
-        else:
-            return None
-    else:
-        return None
-# array=np.array([0]) #should print None
-# array=normalize_array_to_1(array)
-# print(array)
-# array=np.array([1]) #should print None
-# array=normalize_array_to_1(array)
-# print(array)
-# array=np.array([0.25, 0.5, 0.75]) #should print [0 0.5 1]
-# array=normalize_array_to_1(array)
-# print(array)
+    try:
+        denoised_array = (smoothened_array - min(smoothened_array))
+        normalized_array = denoised_array / max(denoised_array)
+        return normalized_array
+    except ZeroDivisionError:
+        return smoothened_array
 
-def find_inflection_points(cv_array):
+def find_inflection_points(scaled_array):
     """
     calculates the inflection points by approximating where 2nd
     derivative of the array crosses 0.
@@ -47,14 +34,9 @@ def find_inflection_points(cv_array):
     :param cv_array: np.array of covariances
     :return: np.arrays of inflection points
     """
-    if len(cv_array)>1: # if length <1, cant get derivatives.
-        smoothd2 = ndim.gaussian_filter1d(np.gradient(np.gradient(cv_array)), 2)
-
-        # TODO: write docs for whatever this is? what happens if we remove np.diff?
-        inflection_points = np.where(np.diff(np.sign(smoothd2))) [0]
-
-        # might need to return smoothd2 if want to see how it looks
-        return inflection_points
+    smoothd2 = ndim.gaussian_filter1d(np.gradient(np.gradient(scaled_array)), 2)
+    inflection_points = np.where(np.diff(np.sign(smoothd2))) [0]
+    return inflection_points
 
 def filter_inflection_points(peaks, troughs, inflection_points, starvation_onset, time_of_interest=120, img_rate=3):
     """peaks, troughs, inflection_points are np.arrays, starvation_onset, time_of_interest, img_rate are ints.
@@ -135,3 +117,23 @@ def find_high_point(y_values_starvation,factor=0.8):
     else:
         point_low_x, point_low_y=None,None
         return point_low_x,point_low_y
+
+def prepare_df(path_to_df):
+    # retrieves a pl.Series of unique Cell IDs, converts to np.array
+    # and flattens (pl.Series cannot be iterated over; non-flattened pl.Series are n-dimensional)
+    full_df = pl.read_csv(path_to_df)
+    unique_IDs = (
+        full_df.unique(subset=["Cell_ID"]).select(c("Cell_ID")).to_numpy().flatten()
+    )
+    unique_IDs.sort()
+    return full_df, unique_IDs
+
+def extract_x_and_y(cell_df, channel_1, channel_2):
+    x = cell_df["time_minutes"]
+    if channel_2 is not "":
+        y_signal_1 = cell_df[channel_1]
+        y_signal_2 = cell_df[channel_2]
+        y = y_signal_1 / y_signal_2
+    else:
+        y = cell_df[channel_1]  # e.g. Quad2_mCherry_CV
+    return x, y
