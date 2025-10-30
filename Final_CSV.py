@@ -17,16 +17,6 @@ def Final_CSV(concat_path_name, path_for_pairs):
         except NoDataError:
             pass
     df_index = pl.concat(csvs)
-    # dummy_data = np.array([[1], [1], [1], [1], [1]],dtype=np.int64)
-    # df_index = pl.DataFrame(dummy_data, schema=["Maxima_Index", "Minima_Index", "Cell_ID", "Maxima_Time(min)", "Minima_Time(min)"], orient="col", infer_schema_length=False)
-    # df_index.clear()
-    # for f in all_files:
-    #     try:
-    #         csv = pl.read_csv(f)
-    #         pl.concat([df_index,csv])
-    #     except NoDataError:
-    #         pass
 
-    ### Sorting might need to be dropped when ACDC relables cell IDs sequencially, keep in mind!
     df_sorted = df_index.sort(['Cell_ID','Maxima_Index'])
     df_sorted.write_csv(concat_path_name / 'All.csv', separator = ",") # index=False gives same results as line 14 (reset index)
