@@ -33,19 +33,16 @@ for path_to_csv in PATH_TO_CSVS:
     cell_IDs = (
         full_df.unique(subset=["Cell_ID"]).select(c("Cell_ID")).to_numpy().flatten()
     )
-    #### START LOOPING ####
     for id in cell_IDs:
-        # if id > 10: # TZ - cap the for loop at id cells
-        #     break
         cell_df = full_df.filter(c("Cell_ID") == id)
         cellgraph = CellGraph(id, cell_df, CHANNEL1, CHANNEL2)
 
-        if cellgraph.frame_of_birth <= STARVATION_START < cellgraph.frame_of_death and cellgraph.lifespan > 5:
-            cellgraph.graph_base(STARVATION_START, STARVATION_END)
+        if cellgraph.birth_frame <= STARVATION_START < cellgraph.death_frame and cellgraph.lifespan > 5:
+            cellgraph.initialize_figure(IMAGING_RATE, tick_interval=40)
+            cellgraph.graph_base()
             cellgraph.graph_starvation_lines(STARVATION_START, STARVATION_END, IMAGING_RATE)
-            # TZ - inflection points refer to the points at which 50% of Whi5 is exported from the nucleus
             cellgraph.graph_peaks_troughs(IMAGING_RATE, PATH_TO_SINGLE_CSVS)
-            cellgraph.graph_inflection_points(STARVATION_START, IMAGING_RATE)
+            cellgraph.graph_whi5_exports(IMAGING_RATE)
             cellgraph.graph_slope(IMAGING_RATE, STARVATION_START)
             cellgraph.graph_half_reimport(STARVATION_START)
             cellgraph.save_figure(PATH_TO_FIGURES)
@@ -53,9 +50,7 @@ for path_to_csv in PATH_TO_CSVS:
         else:
             print(f"Cell {id} does not meet conditions")
             plt.close()
-    #### STOP LOOPING ####
 
-    # output all csvs in one file
     Final_CSV(PATH_TO_SAVING_DIRECTORY / path_to_csv.stem, PATH_TO_SINGLE_CSVS)
 print("End of Analysis")
 delta_time = time.time() - time_start
