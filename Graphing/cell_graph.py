@@ -140,7 +140,7 @@ class CellGraph:
         plt.plot(self.x[self.peaks], self.y_scaled[self.peaks], "^")
         plt.plot(self.x[self.paired_troughs], self.y_scaled[self.paired_troughs], "v")
 
-    def get_peaks(self, distance: int = 12) -> np.ndarray:
+    def get_peaks(self, distance = None) -> np.ndarray:
         """
         Finds CellGraph.y_scaled peaks.
         @param distance: int; smallest amount of frames between two peaks
@@ -148,6 +148,10 @@ class CellGraph:
         peaks: np.ndarray = np.array(
             scipy.signal.find_peaks(self.y_scaled, distance=distance)[0]
         )
+        proms = scipy.signal.peak_prominences(self.y_scaled, peaks)[0]
+        contour_heights = self.y_scaled[peaks] - proms
+        # print(len(self.y_scaled), proms)
+        plt.vlines(x=peaks*3, ymax = self.y_scaled[peaks], ymin = contour_heights)
         return peaks
 
     def get_troughs(self) -> np.ndarray:
@@ -155,6 +159,9 @@ class CellGraph:
         Finds CellGraph.y_scaled troughs
         """
         troughs: np.ndarray = np.array(scipy.signal.find_peaks(-self.y_scaled)[0])
+        proms = scipy.signal.peak_prominences(-self.y_scaled, troughs)[0]
+        contour_heights = self.y_scaled[troughs] + proms
+        plt.vlines(x=troughs*3, ymin = self.y_scaled[troughs], ymax = contour_heights)
         return troughs
 
     def save_whi5_cycles(
