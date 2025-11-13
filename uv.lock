@@ -412,6 +412,19 @@ wheels = [
 ]
 
 [[package]]
+name = "pybaselines"
+version = "1.2.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+    { name = "scipy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/7b/45/60ed7d059023b45eb45a4279356379d13ef883b7efd1c48242e0c1a30d3a/pybaselines-1.2.1.tar.gz", hash = "sha256:5cae63e00cc9f469e446d05e64c731b87a54dbfd9b70ef049e46cf80fc91ad1a", size = 340155, upload-time = "2025-08-10T20:39:58.277Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3d/66/f044d53935b142d47ce2a65b8c4f51fdb5ca85ee1035fb2b7857971b122e/pybaselines-1.2.1-py3-none-any.whl", hash = "sha256:d8f224a0b5ac4cdcef861bc60533131c37255b4d1193f18a410bc37fe5217c73", size = 211891, upload-time = "2025-08-10T20:39:56.813Z" },
+]
+
+[[package]]
 name = "pyparsing"
 version = "3.2.5"
 source = { registry = "https://pypi.org/simple" }
@@ -557,6 +570,7 @@ dependencies = [
     { name = "matplotlib" },
     { name = "numpy" },
     { name = "polars" },
+    { name = "pybaselines" },
     { name = "pyqt5" },
     { name = "scipy" },
 ]
@@ -566,6 +580,7 @@ requires-dist = [
     { name = "matplotlib", specifier = ">=3.10.7" },
     { name = "numpy", specifier = ">=2.3.4" },
     { name = "polars", specifier = ">=1.34.0" },
+    { name = "pybaselines", specifier = ">=1.2.1" },
     { name = "pyqt5", specifier = ">=5.15.11" },
     { name = "scipy", specifier = ">=1.16.3" },
 ]

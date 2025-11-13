@@ -43,12 +43,14 @@ class MainWindow(QMainWindow):
         # starvation start box
         self.starvation_start_frame = QSpinBox()
         self.starvation_start_frame.setRange(0,500)
-        self.starvation_start_frame.setValue(200)
 
         # starvation end box
         self.starvation_end_frame = QSpinBox()
         self.starvation_end_frame.setRange(0,500)
-        self.starvation_end_frame.setValue(200)
+
+        # experiment length box
+        self.experiment_length = QSpinBox()
+        self.experiment_length.setRange(0,500)
 
         # imaging rate box
         self.image_acquisition_rate = QDoubleSpinBox()
@@ -85,6 +87,7 @@ class MainWindow(QMainWindow):
         self.starvation_label = QLabel("Starvation? (has to be set to yes)")
         self.starv_start_label = QLabel("Start of starvation:")
         self.starv_end_label = QLabel("End of starvation:")
+        self.exp_length_label = QLabel("Experiment length:")
         self.imaging_rate_label = QLabel("Image acquisition rate:")
         self.is_fret_label = QLabel("FRET experiment?")
         self.fluorophore_select_label = QLabel("Fluorophore channel name:")
@@ -101,6 +104,8 @@ class MainWindow(QMainWindow):
         self.input_layout.addWidget(self.starvation_start_frame)
         self.input_layout.addWidget(self.starv_end_label)
         self.input_layout.addWidget(self.starvation_end_frame)
+        self.input_layout.addWidget(self.exp_length_label)
+        self.input_layout.addWidget(self.experiment_length)
         self.input_layout.addWidget(self.imaging_rate_label)
         self.input_layout.addWidget(self.image_acquisition_rate)
         self.input_layout.addWidget(self.is_fret_label)
@@ -143,6 +148,7 @@ class MainWindow(QMainWindow):
         self.directory_path.setText(r"/home/tauras/Desktop/") # paste full path to saving directory
         self.starvation_start_frame.setValue(180) # int of frame
         self.starvation_end_frame.setValue(260) # int of frame
+        self.experiment_length.setValue(260)
         self.image_acquisition_rate.setValue(3.0) # float of acq rate
         self.fluorophore_channel_1.setText(r"mCherry_concentration_dataPrepBkgr_from_vol_fl")
 
@@ -235,6 +241,7 @@ def gather_input():
     # is_starvation = window.has_starvation_phase.currentText()
     starvation_start = int( window.starvation_start_frame.text() )
     starvation_end = int( window.starvation_end_frame.text() )
+    experiment_length = int( window.experiment_length.text() ) 
     # only an issue on my system? qspinbox makes , separated floats
     acquisition_rate = float( window.image_acquisition_rate.text().replace(",", ".") )
     is_fret = window.is_fret.isChecked()
@@ -248,7 +255,7 @@ def gather_input():
     #     print(value)
     #     print(type(value))
 
-    return path_to_files, path_to_directory, starvation_start, starvation_end, acquisition_rate, channel_1, \
+    return path_to_files, path_to_directory, starvation_start, starvation_end, experiment_length, acquisition_rate, channel_1, \
             channel_2 \
             # is_starvation
     #### I/O ####

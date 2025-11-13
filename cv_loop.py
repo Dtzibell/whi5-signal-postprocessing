@@ -19,6 +19,7 @@ import time
     PATH_TO_SAVING_DIRECTORY,
     STARVATION_START,
     STARVATION_END,
+    EXPERIMENT_LENGTH,
     IMAGING_RATE,
     CHANNEL1,
     CHANNEL2,
@@ -28,27 +29,40 @@ time_start = time.time()
 for path_to_csv in PATH_TO_CSVS:
     print(f"Proceeding with file: {path_to_csv.stem}")
     # sets up directory for figures, raw find peaks and single cell csvs, outputs pathlib.Paths of each directory
-    PATH_TO_FIGURES, PATH_TO_SINGLE_CSVS = setup_directory(PATH_TO_SAVING_DIRECTORY, path_to_csv.stem)
+    PATH_TO_FIGURES, PATH_TO_SINGLE_CSVS = setup_directory(
+        PATH_TO_SAVING_DIRECTORY, path_to_csv.stem
+    )
     full_df = pl.read_csv(path_to_csv)
     cell_IDs = (
         full_df.unique(subset=["Cell_ID"]).select(c("Cell_ID")).to_numpy().flatten()
     )
     for id in cell_IDs:
         cell_df = full_df.filter(c("Cell_ID") == id)
-        cellgraph = CellGraph(id, cell_df, CHANNEL1, CHANNEL2)
+        cellgraph = CellGraph(
+            id,
+            cell_df,
+            STARVATION_START,
+            STARVATION_END,
+            EXPERIMENT_LENGTH,
+            IMAGING_RATE,
+            CHANNEL1,
+            CHANNEL2,
+        )
 
-        if cellgraph.birth_frame <= STARVATION_START < cellgraph.death_frame and cellgraph.lifespan > 5:
-            cellgraph.initialize_figure(IMAGING_RATE, tick_interval=40)
+        if (
+            cellgraph.birth_frame + 5 <= STARVATION_START < cellgraph.death_frame
+        ):
+            print(cellgraph.id)
+            cellgraph.initialize_figure(tick_interval=40)
             cellgraph.graph_base()
-            cellgraph.graph_starvation_lines(STARVATION_START, STARVATION_END, IMAGING_RATE)
-            cellgraph.graph_peaks_troughs(IMAGING_RATE, PATH_TO_SINGLE_CSVS)
-            cellgraph.graph_whi5_exports(IMAGING_RATE)
-            cellgraph.graph_slope(IMAGING_RATE, STARVATION_START)
-            cellgraph.graph_half_reimport(STARVATION_START)
+            cellgraph.graph_peaks_troughs(PATH_TO_SINGLE_CSVS)
+            # cellgraph.graph_whi5_exports()
+            # cellgraph.graph_slope(STARVATION_START)
+            # cellgraph.graph_half_reimport(STARVATION_START)
             cellgraph.save_figure(PATH_TO_FIGURES)
-            print(f"Finished with cell {cellgraph.id}")
+            # print(f"Finished with cell {cellgraph.id}")
         else:
-            print(f"Cell {id} does not meet conditions")
+            # print(f"Cell {id} does not meet conditions")
             plt.close()
 
     Final_CSV(PATH_TO_SAVING_DIRECTORY / path_to_csv.stem, PATH_TO_SINGLE_CSVS)
