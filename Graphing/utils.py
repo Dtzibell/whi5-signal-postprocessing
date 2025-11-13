@@ -4,7 +4,6 @@ from numpy.typing import ArrayLike
 import polars
 import scipy.signal
 from pybaselines import Baseline
-import matplotlib.pyplot as plt
 
 def smoothen(y: Iterable, window_length=10, polyorder=3, mode="nearest") -> np.ndarray:
     """
@@ -30,7 +29,8 @@ def normalize(y: np.ndarray) -> np.ndarray:
     """
     Denoises the data and scales to 1
     """
-    y_scaled: np.ndarray = (y - min(y)) / np.max(y)
+    temp_y = y-min(y)
+    y_scaled: np.ndarray = temp_y / np.max(temp_y)
     return y_scaled
 
 def subtract_baseline(x: polars.Series, y: np.ndarray):
@@ -39,9 +39,11 @@ def subtract_baseline(x: polars.Series, y: np.ndarray):
     y_growth = temp_y / np.max(temp_y)
     return y_growth
 
-def derive(y: Iterable, window_length=4, polyorder=2) -> np.ndarray:
+def derive(y: ArrayLike, degree, window_length=4, polyorder=2,) -> np.ndarray:
     """
     Derives y
     """
-    y_derived: np.ndarray = scipy.signal.savgol_filter(y, window_length = window_length, polyorder = polyorder, deriv = 1)
+    y_derived: np.ndarray = np.gradient(y)
+    for _ in range(degree-1):
+        y_derived: np.ndarray = np.gradient(y_derived)
     return y_derived

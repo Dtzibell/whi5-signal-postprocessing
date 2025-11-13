@@ -56,9 +56,9 @@ for path_to_csv in PATH_TO_CSVS:
             cellgraph.initialize_figure(tick_interval=40)
             cellgraph.graph_base()
             cellgraph.graph_peaks_troughs(PATH_TO_SINGLE_CSVS)
-            # cellgraph.graph_whi5_exports()
-            # cellgraph.graph_slope(STARVATION_START)
-            # cellgraph.graph_half_reimport(STARVATION_START)
+            cellgraph.graph_whi5_exports()
+            cellgraph.graph_slope(STARVATION_START)
+            cellgraph.graph_half_reimport(STARVATION_START)
             cellgraph.save_figure(PATH_TO_FIGURES)
             # print(f"Finished with cell {cellgraph.id}")
         else:
