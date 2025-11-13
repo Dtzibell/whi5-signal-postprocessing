@@ -141,10 +141,10 @@ class MainWindow(QMainWindow):
         #### personal changes ####
         # if you want to make outputs static, edit the settings within this section
         self.directory_path.setText(r"/home/tauras/Desktop/") # paste full path to saving directory
-        self.starvation_start_frame.setValue(140) # int of frame
-        self.starvation_end_frame.setValue(240) # int of frame
+        self.starvation_start_frame.setValue(180) # int of frame
+        self.starvation_end_frame.setValue(260) # int of frame
         self.image_acquisition_rate.setValue(3.0) # float of acq rate
-        self.fluorophore_channel_1.setText(r"mCherry_CV")
+        self.fluorophore_channel_1.setText(r"mCherry_concentration_dataPrepBkgr_from_vol_fl")
 
     def open_file_selection(self):
         """
