@@ -1,127 +1,135 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Sat Feb 22 21:54:45 2025
-
-@author: 37067
-"""
-# DISCLAIMER: These are not meant to be universal functions suitable for any code.
-# Implementing in other codes may require significant changes.
-
 import pathlib
 from typing import Iterable
 import numpy as np
-from pandas.core import window
-from pybaselines import smooth
-from scipy import ndimage as ndim
 import polars as pl
 import matplotlib.pyplot as plt
+from pybaselines import smooth
 import scipy.signal
 from Graphing.utils import (
     derive,
-    normalize,
     smoothen,
     subtract_baseline,
+    get_max,
+    get_min,
+    weigh,
 )
 from collections import defaultdict
 
+"""
+Does not work on cells that go missing and later reappear, but probably unnecessary?
+"""
 
 class CellGraph:
     def __init__(
         self,
         id: int,
         cell_df: pl.DataFrame,
-        STARVATION_START,
-        STARVATION_END,
-        EXPERIMENT_LENGTH,
-        IMAGING_RATE,
+        STARVATION_START: int,
+        STARVATION_END: int,
+        EXPERIMENT_LENGTH: int,
+        IMAGING_RATE: float,
         CHANNEL1: str,
         CHANNEL2: str,
     ) -> None:
         """
         Initializes the CellGraph object.
-        @param id: int; Cell ID.
         @param cell_df: pl.DataFrame; Data of cell
-        @param CHANNEL1: str; name of first channel that is used for data extraction
-        @param CHANNEL2: str; name of second channel that is used for data extraction. Applies for FRET experiments.
         Adds the following attributes to the object:
-            self.cell_df
-            self.id
+            self.STARVATION_START: int;
+            self.STARVATION_END: int;
+            self.EXPERIMENT_LENGTH: int;
+            self.IMAGING_RATE: int;
+            self.CHANNEL1: str;
+            self.CHANNEL2: str;
+            self.cell_df: pl.DataFrame;
+            self.id: int;
             self.x: pl.Series; temporally sorted values of x in minutes
             self.y: pl.Series; temporally sorted values of y
             self.birth_frame: int; frame of cell's appearance
             self.death_frame: int; frame of cell's disappearance
-            self.lifespan: int; frames within image
+            self.lifespan: int; amount of frames the cell is on screen
+            self.starvation_start: int; cell's individual starvation start point. Each cell's is unique.
+            self.starvation_end: int; see self.starvation_start
+            self.x_growth: pl.Series; cell's x, limited to growth phase.
+            self.x_starvation: pl.Series; see self.x_growth
+            self.x_recovery: pl.Series; see self.x_growth
         """
         self.STARVATION_START = STARVATION_START
         self.STARVATION_END = STARVATION_END
-        self.img_rate = IMAGING_RATE
+        self.IMAGING_RATE = IMAGING_RATE
+        self.EXPERIMENT_LENGTH = EXPERIMENT_LENGTH
+        self.CHANNEL1 = CHANNEL1
+        self.CHANNEL2 = CHANNEL2
+
         self.cell_df: pl.DataFrame = cell_df
         self.id: int = id
+
         self.x: pl.Series = self.get_x()
-        self.y: pl.Series = self.get_y(CHANNEL1, CHANNEL2)
-        self.birth_frame: int = np.round(min(self.x) / self.img_rate).astype(int)
-        self.death_frame: int = np.round(max(self.x) / self.img_rate).astype(int)
+        self.y: pl.Series = self.get_y()
+
+        self.birth_frame: int = np.round(min(self.x) / self.IMAGING_RATE).astype(int)
+        self.death_frame: int = np.round(max(self.x) / self.IMAGING_RATE).astype(int)
+        self.lifespan: int = len(self.x)
+
         self.starvation_start = STARVATION_START - self.birth_frame
         self.starvation_end = STARVATION_END - self.birth_frame
-        self.experiment_length = EXPERIMENT_LENGTH
-        self.x_growth = self.x[:self.starvation_start]
+
+        self.x_growth = self.x[: self.starvation_start]
         self.x_starvation = self.x[self.starvation_start : self.starvation_end]
-        self.x_recovery = self.x[self.starvation_end : len(self.x) + 1]
-        self.lifespan: int = len(self.y)
+        self.x_recovery = self.x[self.starvation_end : self.lifespan + 1]
 
     def get_x(self) -> pl.Series:
         """
-        Retrieves time in minutes from CellGraph.cell_df
+        Returns time points in minutes.
         """
-        x: pl.Series = self.cell_df["time_minutes"]
-        return x
+        return self.cell_df["time_minutes"]
 
-    def get_y(self, CHANNEL1: str, CHANNEL2: str) -> pl.Series:
+    def get_y(self) -> pl.Series:
         """
-        Retrieves the signal of interest from CellGraph.cell_df
-        @param CHANNEL1: str; name of first channel that is used for data extraction
-        @param CHANNEL2: str; name of second channel that is used for data extraction. Applies for FRET experiments.
+        Returns y signal. Converts to FRET signal and returns if CHANNEL2 is given.
         """
-        if CHANNEL2 != "":
-            y_signal_1: pl.Series = self.cell_df[CHANNEL1]
-            y_signal_2: pl.Series = self.cell_df[CHANNEL2]
-            y: pl.Series = y_signal_1 / y_signal_2
-        else:
-            y: pl.Series = self.cell_df[CHANNEL1]  # e.g. Quad2_mCherry_CV
-        return y
+        if self.CHANNEL2 != "":
+            y_signal_1: pl.Series = self.cell_df[self.CHANNEL1]
+            y_signal_2: pl.Series = self.cell_df[self.CHANNEL2]
+            return y_signal_1 / y_signal_2
+        return self.cell_df[self.CHANNEL1]  # e.g. Quad2_mCherry_CV
 
     def initialize_figure(self, tick_interval: float = 40) -> None:
         """
-        Initializes and captions the plot
-        @param self.img_rate: float; imaging rate in minutes
+        Initializes the cell's figure by constructing and designing the axes.
         @param tick_interval: float; time between two x ticks of the figure
         Adds the following attributes to the object:
-            self.figure: matplotlib.figure.Figure; more under https://matplotlib.org/stable/api/_as_gen/matplotlib.figure.Figure.html#matplotlib.figure.Figure
-            self.axes: matplotlib.axes.Axes; more under https://matplotlib.org/stable/api/_as_gen/matplotlib.axes.Axes.html#matplotlib.axes.Axes
+            self.figure: matplotlib.figure.Figure;
+            self.ax1, self.ax2, self.ax3: matplotlib.axes.Axes;
         """
+
         ratio_growth = self.STARVATION_START
         ratio_starvation = self.STARVATION_END - self.STARVATION_START
-        ratio_recovery = self.experiment_length - self.STARVATION_END
+        ratio_recovery = self.EXPERIMENT_LENGTH - self.STARVATION_END
         self.figure, (self.ax1, self.ax2, self.ax3) = plt.subplots(
             1,
             3,
             sharey=True,
-            gridspec_kw={
+            gridspec_kw={ # sets the width of individual subfigures in relation to the others
                 "width_ratios": [ratio_growth, ratio_starvation, ratio_recovery]
             },
         )
+
         self.ax1.spines["right"].set_visible(False)
         self.ax2.spines[["right", "left"]].set_visible(False)
         self.ax3.spines["left"].set_visible(False)
+
         self.ax1.yaxis.tick_left()
         self.ax2.tick_params(left=False)
         self.ax3.yaxis.tick_right()
         self.ax3.tick_params(labelright="off")
+
         d = 0.015
         kwargs = dict(transform=self.ax1.transAxes, color="k", clip_on=False)
         self.ax1.plot((1 - d, 1 + d), (-d, +d), **kwargs)
         self.ax1.plot((1 - d, 1 + d), (1 - d, 1 + d), **kwargs)
         self.ax1.set_xlim(0, self.STARVATION_START * 3)
+
         if ratio_starvation > 0:
             kwargs = dict(transform=self.ax2.transAxes, color="k", clip_on=False)
             self.ax2.plot(
@@ -156,7 +164,8 @@ class CellGraph:
                 (1 - d, 1 + d),
                 **kwargs,
             )
-            self.ax2.set_xlim(self.STARVATION_START * 3, self.STARVATION_END * 3)
+            self.ax2.set_xlim(self.x_starvation[0], self.x_starvation[-1])
+
         if ratio_recovery > 0:
             kwargs = dict(transform=self.ax3.transAxes, color="k", clip_on=False)
             self.ax3.plot(
@@ -175,50 +184,56 @@ class CellGraph:
                 (-d, +d),
                 **kwargs,
             )
-            self.ax3.set_xlim(self.STARVATION_END * 3, self.experiment_length * 3)
+            self.ax3.set_xlim(self.x_recovery[0], self.x_recovery[-1])
+
         self.figure.supxlabel("Time (mins)")
         self.figure.supylabel("Norm. Whi5 CV from Full Cell Mask")
         self.figure.suptitle("Norm. Whi5 CV from Full Cell Mask")
+
         plt.xticks(
-            np.arange(0, self.death_frame * self.img_rate, tick_interval), rotation=90
+            np.arange(0, self.death_frame * self.IMAGING_RATE, tick_interval),
+            rotation=90,
         )
 
     def graph_base(self) -> None:
         """
-        Smoothens and scales CellGraph.y
-        Sets plot's x and y axis limits and plots CellGraph.y over CellGraph.x
+        Graphs x and y.
         Adds the following attributes to the object:
-            self.y_scaled: np.ndarray; y that is smoothened and scaled to 1.
+            self.y_growth, self.y_starvation, self.y_recovery: np.ndarray; y that is smoothened and scaled to 1.
         """
         # subtract_baseline fails to run if length of x_growth is 1
-        smooth_y_growth = smoothen(self.y[:self.starvation_start], window_length=15, polyorder = 3)
-        self.y_starvation = smoothen(self.y[self.starvation_start : self.starvation_end], window_length=20, polyorder=2)
-        self.y_recovery = smoothen(self.y[self.starvation_end : len(self.x)])
-        self.y_growth = subtract_baseline(
-            self.x_growth, smooth_y_growth
+        smooth_y_growth = smoothen(
+            self.y[: self.starvation_start], window_length=15, polyorder=3
         )
-        min = np.min(np.append(smooth_y_growth, np.append(self.y_starvation, self.y_recovery)))
-        max = np.max(np.append(self.y_growth, np.append(self.y_starvation-min, self.y_recovery-min)))
-        self.y_growth = self.y_growth / max
-        self.y_starvation = (self.y_starvation - min) / max
-        self.y_recovery = (self.y_recovery - min) / max
-        plt.xlim(0, self.experiment_length)
+        y_growth_less_bl = subtract_baseline(self.x_growth, smooth_y_growth)
+        y_starvation = smoothen(
+            self.y[self.starvation_start : self.starvation_end],
+            window_length=20,
+            polyorder=2,
+        )
+        y_recovery = smoothen(self.y[self.starvation_end : len(self.x)])
+
+        _min = get_min(smooth_y_growth, y_starvation, y_recovery)
+        _max = get_max(y_growth_less_bl, y_starvation, y_recovery)
+        self.y_growth: np.ndarray = y_growth_less_bl / _max
+        self.y_starvation: np.ndarray = (y_starvation - _min) / _max
+        self.y_recovery: np.ndarray = (y_recovery - _min) / _max
+
+        plt.xlim(0, self.EXPERIMENT_LENGTH)
         plt.ylim(-0.1, 1.1)
         self.ax1.plot(self.x_growth, self.y_growth, "k")
         self.ax2.plot(self.x_starvation, self.y_starvation, "k")
         self.ax3.plot(self.x_recovery, self.y_recovery, "k")
 
-
     def graph_peaks_troughs(self, SINGLE_CSV_SAVING_DIR: pathlib.Path) -> None:
         """
-        Saves whi5 cycles in a csv and plots their peaks and troughs.
-        @param self.img_rate: float; imaging rate in minutes
+        Saves whi5 peaks and troughs in a csv and plots.
         @param SINGLE_CSV_SAVING_DIR: pathlib.Path; path where single cell whi5 cycles are saved.
         Adds the following attributes to the object:
-            self.peaks: np.ndarray; peaks of CellGraph.y_scaled
-            self.troughs: np.ndarray; troughs of CellGraph.y_scaled
+            self.peaks: np.ndarray; peaks of whi5
+            self.troughs: np.ndarray; troughs of whi5
+            self.paired_troughs: np.ndarray;
             self.whi5_cycles: pl.DataFrame; Data of Whi5 cycling
-            self.paired_troughs: np.ndarray; Troughs that are preceded by a peak
         """
         self.peaks: np.ndarray = self.get_peaks()
         self.troughs: np.ndarray = self.get_troughs()
@@ -231,11 +246,11 @@ class CellGraph:
 
     def get_peaks(self) -> np.ndarray:
         """
-        Finds CellGraph.y_scaled peaks.
+        finds and returns whi5 peaks.
         @param distance: int; smallest amount of frames between two peaks
         """
         peaks: np.ndarray = np.array(
-            scipy.signal.find_peaks(self.y_growth, prominence=0.2)[0]
+            scipy.signal.find_peaks(self.y_growth, prominence=0.15)[0]
         )
         # proms = scipy.signal.peak_prominences(self.y_growth, peaks)[0]
         # contour_heights = self.y_growth[peaks] - proms
@@ -244,7 +259,7 @@ class CellGraph:
 
     def get_troughs(self) -> np.ndarray:
         """
-        Finds CellGraph.y_scaled troughs
+        Finds and returns whi5 troughs.
         """
         troughs: np.ndarray = np.array(
             scipy.signal.find_peaks(-self.y_growth, prominence=0.02)[0]
@@ -260,8 +275,9 @@ class CellGraph:
 
     def save_whi5_cycles(self, SINGLE_CSV_SAVING_DIR: pathlib.Path) -> pl.DataFrame:
         """
-        Iterates over peaks and finds the first trough that comes right after each of them.
-        @param self.img_rate: float; imaging rate in minutes
+        Pairs troughs to previously occuring peaks. Saves into csv.
+        returns a pl.DataFrame of peaks and troughs 
+        @param self.IMAGING_RATE: float; imaging rate in minutes
         @param SINGLE_CSV_SAVING_DIR: pathlib.Path; path where single cell whi5 cycles are saved.
         """
         min_idx: int = 0
@@ -274,8 +290,10 @@ class CellGraph:
                 cycler["Maxima_Index"].append(x)
                 cycler["Minima_Index"].append(self.troughs[min_idx])
                 cycler["Cell_ID"].append(self.id)
-                cycler["Maxima_Time(min)"].append(x * self.img_rate)
-                cycler["Minima_Time(min)"].append(self.troughs[min_idx] * self.img_rate)
+                cycler["Maxima_Time(min)"].append(x * self.IMAGING_RATE)
+                cycler["Minima_Time(min)"].append(
+                    self.troughs[min_idx] * self.IMAGING_RATE
+                )
             except IndexError:
                 break
 
@@ -294,37 +312,37 @@ class CellGraph:
         except pl.exceptions.ColumnNotFoundError:
             return pl.Series([0])
 
-    def graph_whi5_exports(self):
+    def graph_whi5_exports(self) -> None:
         """
         Finds whi5 exports and graphs them.
-        @param self.img_rate: int; imaging rate in minutes
+        @param self.IMAGING_RATE: int; imaging rate in minutes
         Adds the following attributes to the object:
             self.exports_of_interest: list[int]; whi5 exports that lay with time_of_interest from STARVATION_START in minutes
-            self.times_to_starvation: list[float]; time until STARVATION_START in minutes
+            self.time_to_starvation: list[float]; time until STARVATION_START in minutes
+            self.slopes_growth: np.ndarray; first derivative of y signal
         """
-
         raw_inflection_points: np.ndarray = self.find_inflection_points()
         whi5_exports: list[int] = self.filter_whi5_exports(raw_inflection_points)
-        self.exports_of_interest, self.times_to_starvation = self.filter_within_time(
+        exports_of_interest, times_to_starvation = self.filter_within_time(
             whi5_exports, 150
         )
 
-        self.exports = []
-        self.times = []
-        for i in range(len(self.exports_of_interest)):
-            if self.peaks[-1] < self.exports_of_interest[i] < self.troughs[-1]:
-                self.exports.append(self.exports_of_interest[i])
-                self.times.append(self.times_to_starvation[i])
+        exports: list[float] = []
+        times:list[float] = []
+        for i in range(len(exports_of_interest)):
+            if self.peaks[-1] < exports_of_interest[i] < self.troughs[-1]:
+                exports.append(exports_of_interest[i])
+                times.append(times_to_starvation[i])
 
-        self.slopes_growth = derive(self.y_growth, 1)
+        self.slopes_growth:np.ndarray = derive(self.y_growth, 1)
         # self.ax1.plot(self.x_growth, self.slopes_growth, "--")
-        self.slopes_paired = self.slopes_growth[np.round(self.exports).astype(int)]
+        slopes_paired = self.slopes_growth[np.round(exports).astype(int)]
 
-        if self.slopes_paired.size > 0:
-            self.export = self.weigh(self.exports, self.slopes_paired)
-            self.time = self.weigh(self.times, self.slopes_paired)
+        if slopes_paired.size > 0 and np.max(slopes_paired) != 0:
+            self.export: int = weigh(exports, slopes_paired)
+            self.time_to_starvation: float = weigh(times, slopes_paired)
             self.ax1.vlines(
-                x = (self.birth_frame + self.export) * 3,
+                x=(self.birth_frame + self.export) * 3,
                 ymin=0,
                 ymax=1,
                 color="b",
@@ -332,14 +350,9 @@ class CellGraph:
             self.ax1.text(
                 (self.birth_frame + self.export) * 3 + 5,
                 0.95,
-                str(round((self.starvation_start - self.time) * 3)),
+                str(round((self.starvation_start - self.time_to_starvation) * 3)),
                 rotation=90,
             )
-
-    def weigh(self, x, weights):
-        norm_weights = weights / np.sum(weights)
-        average_x = np.sum(x*norm_weights)
-        return average_x
 
 
     def find_inflection_points(self) -> np.ndarray:
@@ -353,7 +366,7 @@ class CellGraph:
 
     def filter_whi5_exports(self, iter: Iterable) -> list[int]:
         """
-        filters an iterable for items that are between CellGraph's peak and trough.
+        filters an iterable for items that are between peaks and troughs.
         @param iter: Iterable;
         """
         items_between_peak_and_trough: list[int] = []
@@ -366,7 +379,7 @@ class CellGraph:
                     if is_between_peak_and_trough:
                         items_between_peak_and_trough.append(item)
                 except IndexError:
-                   continue
+                    continue
         return items_between_peak_and_trough
 
     def filter_within_time(self, iter: Iterable, time_of_interest: int):
@@ -374,27 +387,23 @@ class CellGraph:
         Filter an iterable for items that lay within time_of_interest to STARVATION_START
         @param iter: Iterable;
         @param time_of_interest: int;
-        @param self.img_rate: float, imaging rate in minutes
+        @param self.IMAGING_RATE: float, imaging rate in minutes
         """
-        frames_of_interest: int = round(time_of_interest / self.img_rate)
+        frames_of_interest: int = round(time_of_interest / self.IMAGING_RATE)
         inflection_points_of_interest: list[float] = []
         times_to_starvation: list[float] = []
 
         for p in iter:
             frames_to_starvation = self.starvation_start - p
             if 0 < frames_to_starvation < frames_of_interest:
-                inflection_points_of_interest.append(
-                    p
-                )
+                inflection_points_of_interest.append(p)
                 times_to_starvation.append(p)
 
         return inflection_points_of_interest, times_to_starvation
 
-    def graph_slope(self, STARVATION_START):
+    def graph_slope(self):
         """
         Retrieves the reimport onset, the end of reimport and the slope between those two points and plots them.
-        @param self.img_rate: float, imaging rate in minutes
-        @param STARVATION_START: int; frame of start of starvation
         Adds the following attributes to the object:
             self.slopes: np.ndarray; the first derivative of CellGraph.y_scaled
             self.y_starvation: np.ndarray; scaled y within starvation
@@ -411,10 +420,8 @@ class CellGraph:
         # for some reason a tuple cannot consist of 1 element, so a second one is automatically added. 0th index deals with it
         self.slopes_starvation = derive(self.y_starvation, 1)
         self.reimport_onset_x, self.reimport_onset_y = self.find_reimport_onset(
-            STARVATION_START
         )
         self.end_of_reimport_x, self.end_of_reimport_y = self.find_end_of_reimport(
-            STARVATION_START
         )
         if (
             self.reimport_onset_y != -1
@@ -425,14 +432,14 @@ class CellGraph:
                 self.get_slope_of_reimport()
             )
             self.ax2.plot(
-                self.reimport_onset_x * self.img_rate,
+                self.reimport_onset_x * self.IMAGING_RATE,
                 self.reimport_onset_y,
                 ".",
                 color="g",
                 markersize=10,
             )
             self.ax2.plot(
-                self.end_of_reimport_x * self.img_rate,
+                self.end_of_reimport_x * self.IMAGING_RATE,
                 self.end_of_reimport_y,
                 ".",
                 color="g",
@@ -440,14 +447,14 @@ class CellGraph:
             )
             self.ax2.plot(self.x_of_slope, self.y_of_slope, color="g", markersize=10)
             self.ax2.text(
-                self.end_of_reimport_x * self.img_rate - 50,
+                self.end_of_reimport_x * self.IMAGING_RATE - 50,
                 self.end_of_reimport_y + 0.05,
                 f"Slope: {round(self.slope_of_slope[0] * 100, 4)}",
             )
             self.ax2.text(
-                self.reimport_onset_x * self.img_rate + 12,
+                self.reimport_onset_x * self.IMAGING_RATE + 12,
                 self.reimport_onset_y,
-                self.reimport_onset_x * self.img_rate,
+                self.reimport_onset_x * self.IMAGING_RATE,
             )
 
     def filter_for_starvation(self, *args: np.ndarray) -> tuple[np.ndarray, ...]:
@@ -462,11 +469,10 @@ class CellGraph:
         return filtered_tuple
 
     def find_reimport_onset(
-        self, STARVATION_START: int, window: int = 4, factor: float = 0.0005
+        self, window: int = 4, factor: float = 0.0005
     ) -> tuple[int, float]:
         """
         Finds the frame and the signal value where the cell starts whi5 reimport.
-        @param STARVATION_START: int; frame of start of starvation
         @param window: int; amount of points to consider. Higher values are more sensitive to slow reimport.
         @param factor: float; the amount that a series of slopes must have increased for point 0 to be recognized as reimport onset. The larger it is, the more the slopes have to increase with each step.
         """
@@ -475,23 +481,22 @@ class CellGraph:
             if (slopes_in_window[-1] / slopes_in_window[0]) > (
                 (1 + factor / slopes_in_window[0]) ** window
             ) and all(s > 0 for s in slopes_in_window):
-                reimport_onset_x = idx + STARVATION_START
+                reimport_onset_x = idx + self.STARVATION_START
                 reimport_onset_y = y
                 return reimport_onset_x, reimport_onset_y
         else:
             return -1, -1
 
     def find_end_of_reimport(
-        self, STARVATION_START: int, factor: float = 0.8
+        self, factor: float = 0.8
     ) -> tuple[int, float]:
         """
         Finds the first point that is larger than the maximum y in starvation multiplied by a factor
-        @param STARVATION_START: int; frame of start of starvation
         @param factor: float; the number that the maximum y is multiplied by. The higher it is, the higher the point will be set.
         """
         for idx, y in enumerate(self.y_starvation):
             if y > factor * (max(self.y_starvation)):
-                end_of_reimport_x: int = idx + STARVATION_START
+                end_of_reimport_x: int = idx + self.STARVATION_START
                 end_of_reimport_y: float = y
                 return end_of_reimport_x, end_of_reimport_y
         else:
@@ -500,25 +505,22 @@ class CellGraph:
     def get_slope_of_reimport(self) -> tuple[np.ndarray, list[float], list[float]]:
         """
         Finds the slope of whi5 reimport.
-        @param self.img_rate: float, imaging rate in minutes
         """
         x_of_slope: list[float] = [
-            self.reimport_onset_x * self.img_rate,
-            self.end_of_reimport_x * self.img_rate,
+            self.reimport_onset_x * self.IMAGING_RATE,
+            self.end_of_reimport_x * self.IMAGING_RATE,
         ]
         y_of_slope: list[float] = [self.reimport_onset_y, self.end_of_reimport_y]
         slope_of_slope: np.ndarray = np.gradient(y_of_slope, x_of_slope)
         return slope_of_slope, x_of_slope, y_of_slope
 
-    def graph_half_reimport(self, STARVATION_START):
+    def graph_half_reimport(self):
         try:
-            value_at_inflection_point = self.y_growth[
-                self.export - self.birth_frame
-            ]
+            value_at_inflection_point = self.y_growth[self.export - self.birth_frame]
             for idx, val in enumerate(self.y_starvation):
                 if val > value_at_inflection_point:
                     first_encounter_within_starvation = (
-                        (idx + STARVATION_START) * 3,
+                        (idx + self.STARVATION_START) * 3,
                         val,
                     )
                     self.ax2.plot(
@@ -538,22 +540,6 @@ class CellGraph:
             pass
         except AttributeError:
             pass
-
-    def get_individual_starvation_start(self, STARVATION_START: int):
-        """
-        Gets cell's individual starvation start
-        @param STARVATION_START: int; frame of start of starvation
-        """
-        starvation_start = STARVATION_START - self.birth_frame
-        return starvation_start
-
-    def get_individual_starvation_end(self, STARVATION_END: int):
-        """
-        Gets cell's individual starvation end
-        @param STARVATION_START: int; frame of start of starvation
-        """
-        starvation_end = STARVATION_END - self.death_frame
-        return starvation_end
 
     def save_figure(self, PATH_TO_FIGURES: pathlib.Path):
         """

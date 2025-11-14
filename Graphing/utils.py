@@ -25,13 +25,25 @@ def get_baseline(x: ArrayLike, y: ArrayLike) -> np.ndarray:
     baseline = baseline_fitter.asls(y, lam=1e6, p=0.01)[0]
     return baseline
 
-def normalize(y: np.ndarray) -> np.ndarray:
+def get_min(*arrays: np.ndarray) -> float:
     """
     Denoises the data and scales to 1
     """
-    temp_y = y-min(y)
-    y_scaled: np.ndarray = temp_y / np.max(temp_y)
-    return y_scaled
+    arr = np.array([])
+    for a in arrays:
+        arr = np.append(arr, a)
+    _min = np.min(arr)
+    return _min
+
+def get_max(*arrays: np.ndarray) -> float:
+    """
+    Denoises the data and scales to 1
+    """
+    arr = np.array([])
+    for a in arrays:
+        arr = np.append(arr, a)
+    _max = np.max(arr)
+    return _max
 
 def subtract_baseline(x: pl.Series, y: np.ndarray):
     baseline = get_baseline(x, y)
@@ -47,3 +59,13 @@ def derive(y: ArrayLike, degree) -> np.ndarray:
     for _ in range(degree-1):
         y_derived: np.ndarray = np.gradient(y_derived)
     return y_derived
+
+def weigh(x: list[float], weights:np.ndarray) -> int:
+    """
+    Averages array x over array weights.
+    @param x: np.ndarray; array which is to be averaged
+    @param weights: np.ndarray; weights by which x is to be averaged
+    """
+    norm_weights = weights / np.sum(weights)
+    average_x = np.sum(x * norm_weights)
+    return average_x

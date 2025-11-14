@@ -56,8 +56,8 @@ for path_to_csv in PATH_TO_CSVS:
             cellgraph.graph_base()
             cellgraph.graph_peaks_troughs(PATH_TO_SINGLE_CSVS)
             cellgraph.graph_whi5_exports()
-            cellgraph.graph_slope(STARVATION_START)
-            cellgraph.graph_half_reimport(STARVATION_START)
+            cellgraph.graph_slope()
+            cellgraph.graph_half_reimport()
             cellgraph.save_figure(PATH_TO_FIGURES)
             print(f"Finished with cell {cellgraph.id}")
         else:
