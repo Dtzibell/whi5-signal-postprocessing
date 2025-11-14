@@ -1,7 +1,7 @@
 import numpy as np
 from typing import Iterable
 from numpy.typing import ArrayLike
-import polars
+import polars as pl
 import scipy.signal
 from pybaselines import Baseline
 
@@ -33,13 +33,13 @@ def normalize(y: np.ndarray) -> np.ndarray:
     y_scaled: np.ndarray = temp_y / np.max(temp_y)
     return y_scaled
 
-def subtract_baseline(x: polars.Series, y: np.ndarray):
+def subtract_baseline(x: pl.Series, y: np.ndarray):
     baseline = get_baseline(x, y)
-    temp_y = np.maximum(y - baseline, 0)
-    y_growth = temp_y / np.max(temp_y)
+    y_growth = np.maximum(y - baseline, 0)
+    # y_growth = temp_y / np.max(temp_y)
     return y_growth
 
-def derive(y: ArrayLike, degree, window_length=4, polyorder=2,) -> np.ndarray:
+def derive(y: ArrayLike, degree) -> np.ndarray:
     """
     Derives y
     """

@@ -52,7 +52,6 @@ for path_to_csv in PATH_TO_CSVS:
         if (
             cellgraph.birth_frame + 5 <= STARVATION_START < cellgraph.death_frame
         ):
-            print(cellgraph.id)
             cellgraph.initialize_figure(tick_interval=40)
             cellgraph.graph_base()
             cellgraph.graph_peaks_troughs(PATH_TO_SINGLE_CSVS)
@@ -60,7 +59,7 @@ for path_to_csv in PATH_TO_CSVS:
             cellgraph.graph_slope(STARVATION_START)
             cellgraph.graph_half_reimport(STARVATION_START)
             cellgraph.save_figure(PATH_TO_FIGURES)
-            # print(f"Finished with cell {cellgraph.id}")
+            print(f"Finished with cell {cellgraph.id}")
         else:
             # print(f"Cell {id} does not meet conditions")
             plt.close()
