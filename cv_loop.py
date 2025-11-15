@@ -23,6 +23,8 @@ import time
     IMAGING_RATE,
     CHANNEL1,
     CHANNEL2,
+    SLOPE_INDEX,
+    SLOPE_MULTIPLIER,
 ) = gather_input()
 time_start = time.time()
 
@@ -47,6 +49,8 @@ for path_to_csv in PATH_TO_CSVS:
             IMAGING_RATE,
             CHANNEL1,
             CHANNEL2,
+            SLOPE_MULTIPLIER,
+            SLOPE_INDEX,
         )
 
         if (

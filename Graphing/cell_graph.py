@@ -30,10 +30,14 @@ class CellGraph:
         IMAGING_RATE: float,
         CHANNEL1: str,
         CHANNEL2: str,
+        slope_multiplier: float,
+        slope_index: int,
     ) -> None:
         """
         Initializes the CellGraph object.
         @param cell_df: pl.DataFrame; Data of cell
+        @param slope_multiplier: float; Values between 0 and 1; Used in look_forward
+        @param slope_index: int; amount of points to check in look_forward
         Adds the following attributes to the object:
             self.STARVATION_START: int;
             self.STARVATION_END: int;
@@ -74,9 +78,12 @@ class CellGraph:
         self.starvation_start = STARVATION_START - self.birth_frame
         self.starvation_end = STARVATION_END - self.birth_frame
 
-        self.x_growth = self.x[: self.starvation_start]
+        self.x_growth = self.x[: self.starvation_start+5]
         self.x_starvation = self.x[self.starvation_start : self.starvation_end]
         self.x_recovery = self.x[self.starvation_end : self.lifespan + 1]
+
+        self.slope_multiplier = slope_multiplier
+        self.slope_index = slope_index + 1
 
     def get_x(self) -> pl.Series:
         """
@@ -203,7 +210,7 @@ class CellGraph:
         """
         # subtract_baseline fails to run if length of x_growth is 1
         smooth_y_growth = smoothen(
-            self.y[: self.starvation_start], window_length=15, polyorder=3
+            self.y[: self.starvation_start+5], window_length=15, polyorder=3
         )
         y_growth_less_bl = subtract_baseline(self.x_growth, smooth_y_growth)
         y_starvation = smoothen(
@@ -211,7 +218,7 @@ class CellGraph:
             window_length=20,
             polyorder=2,
         )
-        y_recovery = smoothen(self.y[self.starvation_end : len(self.x)])
+        y_recovery = smoothen(self.y[self.starvation_end : self.lifespan+1])
 
         _min = get_min(smooth_y_growth, y_starvation, y_recovery)
         _max = get_max(y_growth_less_bl, y_starvation, y_recovery)
@@ -261,17 +268,26 @@ class CellGraph:
         """
         Finds and returns whi5 troughs.
         """
-        troughs: np.ndarray = np.array(
-            scipy.signal.find_peaks(-self.y_growth, prominence=0.02)[0]
-        )
+        self.slopes_growth:np.ndarray = derive(self.y_growth, 1)
+        # self.ax1.plot(self.x_growth, self.slopes_growth, "--")
+        troughs = np.nonzero(np.diff(np.sign(self.slopes_growth)))[0]
+        troughs = self.look_forward(troughs)
         # extra trough is needed in case no trough is found after last peak
         troughs = np.append(troughs, self.starvation_start - 1)
 
-        # proms = scipy.signal.peak_prominences(-self.y_growth, troughs)[0]
-        # contour_heights = self.y_growth[troughs] + proms
-        # self.ax1.vlines(x=(troughs+self.birth_frame)*3, ymin = self.y_growth[troughs], ymax = contour_heights)
-
         return troughs
+    
+    def look_forward(self, troughs):
+        """
+        Removes troughs if they are located within a whi5 export.
+        """
+        filtered_troughs = []
+        slopes_min = np.min(self.slopes_growth)
+        for t in troughs:
+            if not np.any(self.slopes_growth[t+1:t+self.slope_index] < slopes_min * self.slope_multiplier):
+                filtered_troughs.append(t)
+        return np.round(np.array(filtered_troughs)).astype(int)
+                
 
     def save_whi5_cycles(self, SINGLE_CSV_SAVING_DIR: pathlib.Path) -> pl.DataFrame:
         """
@@ -285,7 +301,7 @@ class CellGraph:
 
         for x in self.peaks:
             try:
-                while x > self.troughs[min_idx]:
+                while x+2 > self.troughs[min_idx]:
                     min_idx += 1
                 cycler["Maxima_Index"].append(x)
                 cycler["Minima_Index"].append(self.troughs[min_idx])
@@ -334,8 +350,6 @@ class CellGraph:
                 exports.append(exports_of_interest[i])
                 times.append(times_to_starvation[i])
 
-        self.slopes_growth:np.ndarray = derive(self.y_growth, 1)
-        # self.ax1.plot(self.x_growth, self.slopes_growth, "--")
         slopes_paired = self.slopes_growth[np.round(exports).astype(int)]
 
         if slopes_paired.size > 0 and np.max(slopes_paired) != 0:
@@ -360,7 +374,7 @@ class CellGraph:
         Gets inflection points
         """
         second_derivative: np.ndarray = derive(self.y_growth, 2)
-        inflection_points: np.ndarray = np.where(np.diff(np.sign(second_derivative)))[0]
+        inflection_points: np.ndarray = np.nonzero(np.diff(np.sign(second_derivative)))[0]
         # self.ax1.vlines((inflection_points + self.birth_frame)*3, ymin=0, ymax=1, color="g")
         return inflection_points
 

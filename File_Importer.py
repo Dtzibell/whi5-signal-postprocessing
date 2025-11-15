@@ -76,12 +76,21 @@ class MainWindow(QMainWindow):
         # located in cross_val layout
         self.file_path_label = QLabel("Current file path: ")
         self.directory_path_label = QLabel("Current directory path: ")
+        self.slope_index_label = QLabel("Slope index: ")
+        self.slope_multiplier_label = QLabel("Slope multiplier: ")
         self.file_path = QLabel()
         self.file_path.setObjectName("path")
         self.file_path.setWordWrap(True)
         self.directory_path=QLabel()
         self.directory_path.setObjectName("path")
         self.directory_path.setWordWrap(True)
+        self.slope_index=QSpinBox()
+        self.slope_index.setValue(5)
+        self.slope_multiplier=QDoubleSpinBox()
+        self.slope_multiplier.setMaximum(1)
+        self.slope_multiplier.setMinimum(0)
+        self.slope_multiplier.setValue(0.1)
+
 
         # located in input_layout
         self.starvation_label = QLabel("Starvation? (has to be set to yes)")
@@ -122,6 +131,10 @@ class MainWindow(QMainWindow):
         self.cross_val_layout.addWidget(self.file_path)
         self.cross_val_layout.addWidget(self.directory_path_label)
         self.cross_val_layout.addWidget(self.directory_path)
+        self.cross_val_layout.addWidget(self.slope_index_label)
+        self.cross_val_layout.addWidget(self.slope_index)
+        self.cross_val_layout.addWidget(self.slope_multiplier_label)
+        self.cross_val_layout.addWidget(self.slope_multiplier)
         self.cross_val_layout.addStretch()
         self.cross_val_layout.addWidget(self.end)
 
@@ -247,6 +260,8 @@ def gather_input():
     is_fret = window.is_fret.isChecked()
     channel_1 = window.fluorophore_channel_1.text()
     channel_2 = window.fluorophore_channel_2.text()
+    slope_index = int(window.slope_index.text())
+    slope_multiplier = float(window.slope_multiplier.text())
 
     # tester print
     # all_values=(path_to_files, path_to_directory, starvation_start, starvation_end, acquisition_rate, is_fret, \
@@ -256,7 +271,7 @@ def gather_input():
     #     print(type(value))
 
     return path_to_files, path_to_directory, starvation_start, starvation_end, experiment_length, acquisition_rate, channel_1, \
-            channel_2 \
+            channel_2, slope_index, slope_multiplier \
             # is_starvation
     #### I/O ####
 
