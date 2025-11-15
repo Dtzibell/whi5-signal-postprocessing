@@ -220,11 +220,11 @@ class CellGraph:
         )
         y_recovery = smoothen(self.y[self.starvation_end : self.lifespan+1])
 
-        _min = get_min(smooth_y_growth, y_starvation, y_recovery)
-        _max = get_max(y_growth_less_bl, y_starvation, y_recovery)
-        self.y_growth: np.ndarray = y_growth_less_bl / _max
-        self.y_starvation: np.ndarray = (y_starvation - _min) / _max
-        self.y_recovery: np.ndarray = (y_recovery - _min) / _max
+        min = get_min(smooth_y_growth, y_starvation, y_recovery)
+        max = get_max(y_growth_less_bl, y_starvation-min, y_recovery-min)
+        self.y_growth: np.ndarray = y_growth_less_bl / max
+        self.y_starvation: np.ndarray = (y_starvation - min) / max
+        self.y_recovery: np.ndarray = (y_recovery - min) / max
 
         plt.xlim(0, self.EXPERIMENT_LENGTH)
         plt.ylim(-0.1, 1.1)
