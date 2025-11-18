@@ -19,6 +19,7 @@ from collections import defaultdict
 Does not work on cells that go missing and later reappear, but probably unnecessary?
 """
 
+
 class CellGraph:
     def __init__(
         self,
@@ -64,6 +65,8 @@ class CellGraph:
         self.EXPERIMENT_LENGTH = EXPERIMENT_LENGTH
         self.CHANNEL1 = CHANNEL1
         self.CHANNEL2 = CHANNEL2
+        self.GROWTH_INCREMENT = 5
+        self.STARVATION_DECREMENT = 8
 
         self.cell_df: pl.DataFrame = cell_df
         self.id: int = id
@@ -78,8 +81,10 @@ class CellGraph:
         self.starvation_start = STARVATION_START - self.birth_frame
         self.starvation_end = STARVATION_END - self.birth_frame
 
-        self.x_growth = self.x[: self.starvation_start+5]
-        self.x_starvation = self.x[self.starvation_start : self.starvation_end]
+        self.x_growth = self.x[: self.starvation_start + self.GROWTH_INCREMENT]
+        self.x_starvation = self.x[
+            self.starvation_start - self.STARVATION_DECREMENT : self.starvation_end
+        ]
         self.x_recovery = self.x[self.starvation_end : self.lifespan + 1]
 
         self.slope_multiplier = slope_multiplier
@@ -117,7 +122,7 @@ class CellGraph:
             1,
             3,
             sharey=True,
-            gridspec_kw={ # sets the width of individual subfigures in relation to the others
+            gridspec_kw={  # sets the width of individual subfigures in relation to the others
                 "width_ratios": [ratio_growth, ratio_starvation, ratio_recovery]
             },
         )
@@ -209,26 +214,38 @@ class CellGraph:
             self.y_growth, self.y_starvation, self.y_recovery: np.ndarray; y that is smoothened and scaled to 1.
         """
         # subtract_baseline fails to run if length of x_growth is 1
+        window_length = 10
+        polyorder = 2
         smooth_y_growth = smoothen(
-            self.y[: self.starvation_start+5], window_length=15, polyorder=3
+            self.y[: self.starvation_start + self.GROWTH_INCREMENT],
+            window_length=window_length,
+            polyorder=polyorder,
         )
         y_growth_less_bl = subtract_baseline(self.x_growth, smooth_y_growth)
         y_starvation = smoothen(
-            self.y[self.starvation_start : self.starvation_end],
-            window_length=20,
-            polyorder=2,
+            self.y[
+                self.starvation_start - self.STARVATION_DECREMENT : self.starvation_end
+            ],
+            window_length=window_length,
+            polyorder=polyorder,
         )
-        y_recovery = smoothen(self.y[self.starvation_end : self.lifespan+1])
+        y_recovery = smoothen(
+            self.y[self.starvation_end : self.lifespan + 1],
+            window_length=window_length,
+            polyorder=polyorder,
+        )
 
         min = get_min(smooth_y_growth, y_starvation, y_recovery)
-        max = get_max(y_growth_less_bl, y_starvation-min, y_recovery-min)
-        self.y_growth: np.ndarray = y_growth_less_bl / max
-        self.y_starvation: np.ndarray = (y_starvation - min) / max
-        self.y_recovery: np.ndarray = (y_recovery - min) / max
+        max = get_max(y_growth_less_bl, y_starvation - min, y_recovery - min)
+        max_y_smooth = get_max(smooth_y_growth-min, y_starvation-min, y_recovery-min)
+        self.y_less_min = (smooth_y_growth - min) / max_y_smooth
+        self.y_growth: np.ndarray = y_growth_less_bl / max_y_smooth
+        self.y_starvation: np.ndarray = (y_starvation - min) / max_y_smooth
+        self.y_recovery: np.ndarray = (y_recovery - min) / max_y_smooth
 
         plt.xlim(0, self.EXPERIMENT_LENGTH)
         plt.ylim(-0.1, 1.1)
-        self.ax1.plot(self.x_growth, self.y_growth, "k")
+        self.ax1.plot(self.x_growth, self.y_less_min, "k")
         self.ax2.plot(self.x_starvation, self.y_starvation, "k")
         self.ax3.plot(self.x_recovery, self.y_recovery, "k")
 
@@ -268,7 +285,7 @@ class CellGraph:
         """
         Finds and returns whi5 troughs.
         """
-        self.slopes_growth:np.ndarray = derive(self.y_growth, 1)
+        self.slopes_growth: np.ndarray = derive(self.y_growth, 1)
         # self.ax1.plot(self.x_growth, self.slopes_growth, "--")
         troughs = np.nonzero(np.diff(np.sign(self.slopes_growth)))[0]
         troughs = self.look_forward(troughs)
@@ -276,7 +293,7 @@ class CellGraph:
         troughs = np.append(troughs, self.starvation_start - 1)
 
         return troughs
-    
+
     def look_forward(self, troughs):
         """
         Removes troughs if they are located within a whi5 export.
@@ -284,15 +301,17 @@ class CellGraph:
         filtered_troughs = []
         slopes_min = np.min(self.slopes_growth)
         for t in troughs:
-            if not np.any(self.slopes_growth[t+1:t+self.slope_index] < slopes_min * self.slope_multiplier):
+            if not np.any(
+                self.slopes_growth[t + 1 : t + self.slope_index]
+                < slopes_min * self.slope_multiplier
+            ):
                 filtered_troughs.append(t)
         return np.round(np.array(filtered_troughs)).astype(int)
-                
 
     def save_whi5_cycles(self, SINGLE_CSV_SAVING_DIR: pathlib.Path) -> pl.DataFrame:
         """
         Pairs troughs to previously occuring peaks. Saves into csv.
-        returns a pl.DataFrame of peaks and troughs 
+        returns a pl.DataFrame of peaks and troughs
         @param self.IMAGING_RATE: float; imaging rate in minutes
         @param SINGLE_CSV_SAVING_DIR: pathlib.Path; path where single cell whi5 cycles are saved.
         """
@@ -301,7 +320,7 @@ class CellGraph:
 
         for x in self.peaks:
             try:
-                while x+2 > self.troughs[min_idx]:
+                while x + 2 > self.troughs[min_idx]:
                     min_idx += 1
                 cycler["Maxima_Index"].append(x)
                 cycler["Minima_Index"].append(self.troughs[min_idx])
@@ -344,7 +363,7 @@ class CellGraph:
         )
 
         exports: list[float] = []
-        times:list[float] = []
+        times: list[float] = []
         for i in range(len(exports_of_interest)):
             if self.peaks[-1] < exports_of_interest[i] < self.troughs[-1]:
                 exports.append(exports_of_interest[i])
@@ -368,13 +387,14 @@ class CellGraph:
                 rotation=90,
             )
 
-
     def find_inflection_points(self) -> np.ndarray:
         """
         Gets inflection points
         """
         second_derivative: np.ndarray = derive(self.y_growth, 2)
-        inflection_points: np.ndarray = np.nonzero(np.diff(np.sign(second_derivative)))[0]
+        inflection_points: np.ndarray = np.nonzero(np.diff(np.sign(second_derivative)))[
+            0
+        ]
         # self.ax1.vlines((inflection_points + self.birth_frame)*3, ymin=0, ymax=1, color="g")
         return inflection_points
 
@@ -433,10 +453,8 @@ class CellGraph:
         """
         # for some reason a tuple cannot consist of 1 element, so a second one is automatically added. 0th index deals with it
         self.slopes_starvation = derive(self.y_starvation, 1)
-        self.reimport_onset_x, self.reimport_onset_y = self.find_reimport_onset(
-        )
-        self.end_of_reimport_x, self.end_of_reimport_y = self.find_end_of_reimport(
-        )
+        self.reimport_onset_x, self.reimport_onset_y = self.find_reimport_onset()
+        self.end_of_reimport_x, self.end_of_reimport_y = self.find_end_of_reimport()
         if (
             self.reimport_onset_y != -1
             and self.end_of_reimport_y != -1
@@ -495,22 +513,24 @@ class CellGraph:
             if (slopes_in_window[-1] / slopes_in_window[0]) > (
                 (1 + factor / slopes_in_window[0]) ** window
             ) and all(s > 0 for s in slopes_in_window):
-                reimport_onset_x = idx + self.STARVATION_START
+                reimport_onset_x = (
+                    idx + self.STARVATION_START - self.STARVATION_DECREMENT
+                )
                 reimport_onset_y = y
                 return reimport_onset_x, reimport_onset_y
         else:
             return -1, -1
 
-    def find_end_of_reimport(
-        self, factor: float = 0.8
-    ) -> tuple[int, float]:
+    def find_end_of_reimport(self, factor: float = 0.8) -> tuple[int, float]:
         """
         Finds the first point that is larger than the maximum y in starvation multiplied by a factor
         @param factor: float; the number that the maximum y is multiplied by. The higher it is, the higher the point will be set.
         """
         for idx, y in enumerate(self.y_starvation):
             if y > factor * (max(self.y_starvation)):
-                end_of_reimport_x: int = idx + self.STARVATION_START
+                end_of_reimport_x: int = (
+                    idx + self.STARVATION_START - self.STARVATION_DECREMENT
+                )
                 end_of_reimport_y: float = y
                 return end_of_reimport_x, end_of_reimport_y
         else:
@@ -528,11 +548,20 @@ class CellGraph:
         slope_of_slope: np.ndarray = np.gradient(y_of_slope, x_of_slope)
         return slope_of_slope, x_of_slope, y_of_slope
 
+    def time_at_(self, frame):
+        return self.x[frame]
+
+    def growth_signal_at_(self, frame):
+        return self.y_growth[frame]
+
+    def smooth_signal_at_(self, frame):
+        return self.y_less_min[frame]
+
     def graph_half_reimport(self):
         try:
-            value_at_inflection_point = self.y_growth[self.export - self.birth_frame]
-            for idx, val in enumerate(self.y_starvation):
-                if val > value_at_inflection_point:
+            export_signal = self.smooth_signal_at_(round(int(self.export)))
+            for idx, val in enumerate(self.y_starvation[self.STARVATION_DECREMENT :]):
+                if val > export_signal:
                     first_encounter_within_starvation = (
                         (idx + self.STARVATION_START) * 3,
                         val,
@@ -550,8 +579,6 @@ class CellGraph:
                         f"val = {first_encounter_within_starvation[0]}",
                     )
                     break
-        except IndexError:  # no inflection points present
-            pass
         except AttributeError:
             pass
 
