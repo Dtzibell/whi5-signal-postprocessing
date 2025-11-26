@@ -22,7 +22,7 @@ def get_baseline(x: ArrayLike, y: ArrayLike) -> np.ndarray:
         Baseline Correction with Asymmetric Least Squares Smoothing, Eilers & Boelens, 2005. Contact Tauras for paper if cant find.
     """
     baseline_fitter = Baseline(x_data = x) 
-    baseline = baseline_fitter.asls(y, lam=1e6, p=0.01)[0]
+    baseline = baseline_fitter.asls(y, lam=1e4, p=0.01)[0]
     return baseline
 
 def get_min(*arrays: np.ndarray) -> float:
@@ -45,7 +45,7 @@ def get_max(*arrays: np.ndarray) -> float:
     _max = np.max(arr)
     return _max
 
-def subtract_baseline(x: pl.Series, y: np.ndarray):
+def subtract_baseline(x: np.ndarray, y: np.ndarray):
     baseline = get_baseline(x, y)
     y_growth = np.maximum(y - baseline, 0)
     # y_growth = temp_y / np.max(temp_y)
@@ -69,3 +69,8 @@ def weigh(x: list[float], weights:np.ndarray) -> int:
     norm_weights = weights / np.sum(weights)
     average_x = np.sum(x * norm_weights)
     return average_x
+
+def normalize(arr: np.ndarray):
+    arr_less_min = arr - np.min(arr)
+    arr_normalized = arr_less_min / np.max(arr_less_min)
+    return arr_normalized

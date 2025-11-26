@@ -38,7 +38,11 @@ for path_to_csv in PATH_TO_CSVS:
     cell_IDs = (
         full_df.unique(subset=["Cell_ID"]).select(c("Cell_ID")).to_numpy().flatten()
     )
+    total_cells = cell_IDs.size
+    i = 0
     for id in cell_IDs:
+        i += 1
+        print(f"Proceeding with cell {i}/{total_cells}, ID: {id}")
         cell_df = full_df.filter(c("Cell_ID") == id)
         cellgraph = CellGraph(
             id,
@@ -63,7 +67,7 @@ for path_to_csv in PATH_TO_CSVS:
             # cellgraph.graph_slope()
             cellgraph.graph_half_reimport()
             cellgraph.save_figure(PATH_TO_FIGURES)
-            print(f"Finished with cell {cellgraph.id}")
+            # print(f"Finished with cell {cellgraph.id}")
         else:
             # print(f"Cell {id} does not meet conditions")
             plt.close()

@@ -7,6 +7,7 @@ from pybaselines import smooth
 import scipy.signal
 from Graphing.utils import (
     derive,
+    normalize,
     smoothen,
     subtract_baseline,
     get_max,
@@ -36,28 +37,39 @@ class CellGraph:
     ) -> None:
         """
         Initializes the CellGraph object.
-        @param cell_df: pl.DataFrame; Data of cell
-        @param slope_multiplier: float; Values between 0 and 1; Used in look_forward
-        @param slope_index: int; amount of points to check in look_forward
+        @param id: int; ID (number) of the cell
+        @param cell_df: pl.DataFrame; Cell cycling data
+        @param STARVATION_START: int;
+        @param STARVATION_END: int;
+        @param EXPERIMENT_LENGTH: int;
+        @param IMAGING_RATE: float;
+        @param CHANNEL1: str;
+        @param CHANNEL2: str;
+        @param slope_multiplier: float; Values between 0 and 1; Refer to look_forward for description
+        @param slope_index: int; Refer to look_forward for description
         Adds the following attributes to the object:
             self.STARVATION_START: int;
             self.STARVATION_END: int;
             self.EXPERIMENT_LENGTH: int;
             self.IMAGING_RATE: int;
             self.CHANNEL1: str;
-            self.CHANNEL2: str;
+            self.CHANNEL2: str; Second fluorescent channel of the experiment; present in FRET setups
+            self.GROWTH_INCREMENT: int; Amount of frames past STARVATION_START to plot in growth phase
+            self.STARVATION_DECREMENT: int; Amount of frames before STARVATION_START to plot in starvation phase
             self.cell_df: pl.DataFrame;
             self.id: int;
-            self.x: pl.Series; temporally sorted values of x in minutes
-            self.y: pl.Series; temporally sorted values of y
+            self.x: np.ndarray; temporally sorted values of x in minutes
+            self.y: np.ndarray; temporally sorted values of y
             self.birth_frame: int; frame of cell's appearance
             self.death_frame: int; frame of cell's disappearance
             self.lifespan: int; amount of frames the cell is on screen
             self.starvation_start: int; cell's individual starvation start point. Each cell's is unique.
             self.starvation_end: int; see self.starvation_start
-            self.x_growth: pl.Series; cell's x, limited to growth phase.
-            self.x_starvation: pl.Series; see self.x_growth
-            self.x_recovery: pl.Series; see self.x_growth
+            self.x_growth: np.ndarray; cell's x, limited to growth phase.
+            self.x_starvation: np.ndarray; see self.x_growth
+            self.x_recovery: np.ndarray; see self.x_growth
+            self.slope_multiplier: int; Refer to look_forward for description
+            self.slope_index: int; Refer to look_forward for description
         """
         self.STARVATION_START = STARVATION_START
         self.STARVATION_END = STARVATION_END
@@ -71,12 +83,12 @@ class CellGraph:
         self.cell_df: pl.DataFrame = cell_df
         self.id: int = id
 
-        self.x: pl.Series = self.get_x()
-        self.y: pl.Series = self.get_y()
+        self.x: np.ndarray = self.get_x()
+        self.y: np.ndarray = self.get_y()
 
         self.birth_frame: int = np.round(min(self.x) / self.IMAGING_RATE).astype(int)
         self.death_frame: int = np.round(max(self.x) / self.IMAGING_RATE).astype(int)
-        self.lifespan: int = len(self.x)
+        self.lifespan: int = self.x.size
 
         self.starvation_start = STARVATION_START - self.birth_frame
         self.starvation_end = STARVATION_END - self.birth_frame
@@ -90,25 +102,29 @@ class CellGraph:
         self.slope_multiplier = slope_multiplier
         self.slope_index = slope_index + 1
 
-    def get_x(self) -> pl.Series:
+    def get_x(self) -> np.ndarray:
         """
         Returns time points in minutes.
         """
-        return self.cell_df["time_minutes"]
+        return self.cell_df["time_minutes"].to_numpy()
 
-    def get_y(self) -> pl.Series:
+    def get_y(self) -> np.ndarray:
         """
         Returns y signal. Converts to FRET signal and returns if CHANNEL2 is given.
         """
         if self.CHANNEL2 != "":
-            y_signal_1: pl.Series = self.cell_df[self.CHANNEL1]
-            y_signal_2: pl.Series = self.cell_df[self.CHANNEL2]
+            y_signal_1: np.ndarray = self.cell_df[self.CHANNEL1].to_numpy()
+            y_signal_2: np.ndarray = self.cell_df[self.CHANNEL2].to_numpy()
             return y_signal_1 / y_signal_2
-        return self.cell_df[self.CHANNEL1]  # e.g. Quad2_mCherry_CV
+        return self.cell_df[self.CHANNEL1].to_numpy()  # e.g. Quad2_mCherry_CV
 
     def initialize_figure(self, tick_interval: float = 40) -> None:
         """
         Initializes the cell's figure by constructing and designing the axes.
+
+        This function creates a plot that has 3 separated segments that share the x axis. 
+        The y axis flanks the graph from both sides.
+
         @param tick_interval: float; time between two x ticks of the figure
         Adds the following attributes to the object:
             self.figure: matplotlib.figure.Figure;
@@ -197,6 +213,7 @@ class CellGraph:
                 **kwargs,
             )
             self.ax3.set_xlim(self.x_recovery[0], self.x_recovery[-1])
+            print(self.x_recovery)
 
         self.figure.supxlabel("Time (mins)")
         self.figure.supylabel("Norm. Whi5 CV from Full Cell Mask")
@@ -211,17 +228,21 @@ class CellGraph:
         """
         Graphs x and y.
         Adds the following attributes to the object:
-            self.y_growth, self.y_starvation, self.y_recovery: np.ndarray; y that is smoothened and scaled to 1.
+            self.y_growth: np.ndarray;
+            self.y_starvation: np.ndarray;
+            self.y_recovery: np.ndarray; y that is smoothened and scaled to 1.
+            self.y_less_min: np.ndarray;
         """
         # subtract_baseline fails to run if length of x_growth is 1
         window_length = 10
         polyorder = 2
-        smooth_y_growth = smoothen(
+        y_full = smoothen(self.y, window_length=window_length, polyorder=polyorder)
+        y_growth = smoothen(
             self.y[: self.starvation_start + self.GROWTH_INCREMENT],
             window_length=window_length,
             polyorder=polyorder,
         )
-        y_growth_less_bl = subtract_baseline(self.x_growth, smooth_y_growth)
+        y_growth_less_bl = subtract_baseline(self.x_growth, y_growth)
         y_starvation = smoothen(
             self.y[
                 self.starvation_start - self.STARVATION_DECREMENT : self.starvation_end
@@ -229,25 +250,26 @@ class CellGraph:
             window_length=window_length,
             polyorder=polyorder,
         )
-        y_recovery = smoothen(
-            self.y[self.starvation_end : self.lifespan + 1],
-            window_length=window_length,
-            polyorder=polyorder,
-        )
+        if self.starvation_end + self.birth_frame > self.STARVATION_END:
+            y_recovery = smoothen(
+                self.y[self.starvation_end : self.lifespan + 1],
+                window_length=window_length,
+                polyorder=polyorder,
+            )
+            y_recovery_less_bl = subtract_baseline(self.x_recovery, y_recovery)
+            self.y_recovery: np.ndarray = normalize(y_recovery_less_bl)
+            self.ax3.plot(self.x_recovery, self.y_recovery, "k", "--")
+            self.ax3.plot(self.x, y_full, "k")
 
-        min = get_min(smooth_y_growth, y_starvation, y_recovery)
-        max = get_max(y_growth_less_bl, y_starvation - min, y_recovery - min)
-        max_y_smooth = get_max(smooth_y_growth-min, y_starvation-min, y_recovery-min)
-        self.y_less_min = (smooth_y_growth - min) / max_y_smooth
-        self.y_growth: np.ndarray = y_growth_less_bl / max_y_smooth
-        self.y_starvation: np.ndarray = (y_starvation - min) / max_y_smooth
-        self.y_recovery: np.ndarray = (y_recovery - min) / max_y_smooth
+        self.y_normalized: np.ndarray = normalize(y_full)
+        self.y_growth: np.ndarray = normalize(y_growth_less_bl)
+        self.y_starvation: np.ndarray = normalize(y_starvation)
 
-        plt.xlim(0, self.EXPERIMENT_LENGTH)
         plt.ylim(-0.1, 1.1)
-        self.ax1.plot(self.x_growth, self.y_less_min, "k")
-        self.ax2.plot(self.x_starvation, self.y_starvation, "k")
-        self.ax3.plot(self.x_recovery, self.y_recovery, "k")
+        self.ax1.plot(self.x, self.y_normalized, c="k")
+        self.ax2.plot(self.x, self.y_normalized, c="k")
+        self.ax1.plot(self.x_growth, self.y_growth, ls="--", c="k", alpha=0.3)
+        self.ax2.plot(self.x_starvation, self.y_starvation, ls="--", c="k", alpha=0.3)
 
     def graph_peaks_troughs(self, SINGLE_CSV_SAVING_DIR: pathlib.Path) -> None:
         """
@@ -262,10 +284,10 @@ class CellGraph:
         self.peaks: np.ndarray = self.get_peaks()
         self.troughs: np.ndarray = self.get_troughs()
         self.whi5_cycles: pl.DataFrame = self.save_whi5_cycles(SINGLE_CSV_SAVING_DIR)
-        self.paired_troughs: pl.Series = self.get_paired_troughs()
-        self.ax1.plot(self.x_growth[self.peaks], self.y_growth[self.peaks], "^")
+        self.paired_troughs: np.ndarray = self.get_paired_troughs()
+        self.ax1.plot(self.x[self.peaks], self.y_normalized[self.peaks], "^")
         self.ax1.plot(
-            self.x_growth[self.paired_troughs], self.y_growth[self.paired_troughs], "v"
+            self.x[self.paired_troughs], self.y_normalized[self.paired_troughs], "v"
         )
 
     def get_peaks(self) -> np.ndarray:
@@ -274,7 +296,7 @@ class CellGraph:
         @param distance: int; smallest amount of frames between two peaks
         """
         peaks: np.ndarray = np.array(
-            scipy.signal.find_peaks(self.y_growth, prominence=0.15)[0]
+                scipy.signal.find_peaks(self.y_growth[:-self.GROWTH_INCREMENT], prominence=0.15)[0]
         )
         # proms = scipy.signal.peak_prominences(self.y_growth, peaks)[0]
         # contour_heights = self.y_growth[peaks] - proms
@@ -338,14 +360,14 @@ class CellGraph:
 
         return whi5_cycles
 
-    def get_paired_troughs(self) -> pl.Series:
+    def get_paired_troughs(self) -> np.ndarray:
         """
         Gets troughs that are preceded by a peak
         """
         try:
-            return self.whi5_cycles["Minima_Index"]
+            return self.whi5_cycles["Minima_Index"].to_numpy()
         except pl.exceptions.ColumnNotFoundError:
-            return pl.Series([0])
+            return np.array([0])
 
     def graph_whi5_exports(self) -> None:
         """
