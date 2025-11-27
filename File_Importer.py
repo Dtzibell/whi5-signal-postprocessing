@@ -171,7 +171,7 @@ class MainWindow(QMainWindow):
         #### personal changes ####
         # if you want to make outputs static, edit the settings within this section
         self.directory_path.setText(
-            r"/home/tauras/Desktop/"
+            r"/home/dtzi/Desktop/"
         )  # paste full path to saving directory
         self.starvation_start_frame.setValue(180)  # int of frame
         self.starvation_end_frame.setValue(260)  # int of frame

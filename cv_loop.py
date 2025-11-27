@@ -41,37 +41,38 @@ for path_to_csv in PATH_TO_CSVS:
     total_cells = cell_IDs.size
     i = 0
     for id in cell_IDs:
-        i += 1
-        print(f"Proceeding with cell {i}/{total_cells}, ID: {id}")
-        cell_df = full_df.filter(c("Cell_ID") == id)
-        cellgraph = CellGraph(
-            id,
-            cell_df,
-            STARVATION_START,
-            STARVATION_END,
-            EXPERIMENT_LENGTH,
-            IMAGING_RATE,
-            CHANNEL1,
-            CHANNEL2,
-            SLOPE_MULTIPLIER,
-            SLOPE_INDEX,
-        )
+        if id == 6:
+            i += 1
+            print(f"Proceeding with cell {i}/{total_cells}, ID: {id}")
+            cell_df = full_df.filter(c("Cell_ID") == id)
+            cellgraph = CellGraph(
+                id,
+                cell_df,
+                STARVATION_START,
+                STARVATION_END,
+                EXPERIMENT_LENGTH,
+                IMAGING_RATE,
+                CHANNEL1,
+                CHANNEL2,
+                SLOPE_MULTIPLIER,
+                SLOPE_INDEX,
+            )
 
-        if (
-            cellgraph.birth_frame + 5 <= STARVATION_START < cellgraph.death_frame
-            # and id == 26
-        ):
-            cellgraph.initialize_figure(tick_interval=40)
-            cellgraph.graph_base()
-            cellgraph.graph_peaks_troughs(PATH_TO_SINGLE_CSVS)
-            cellgraph.graph_whi5_exports()
-            # cellgraph.graph_slope()
-            cellgraph.graph_half_reimport()
-            cellgraph.save_figure(PATH_TO_FIGURES)
-            # print(f"Finished with cell {cellgraph.id}")
-        else:
-            # print(f"Cell {id} does not meet conditions")
-            plt.close()
+            if (
+                cellgraph.birth_frame + 5 <= STARVATION_START < cellgraph.death_frame
+                # and id == 26
+            ):
+                cellgraph.initialize_figure(tick_interval=40)
+                cellgraph.graph_base()
+                cellgraph.graph_peaks_troughs(PATH_TO_SINGLE_CSVS)
+                cellgraph.graph_whi5_exports()
+                # cellgraph.graph_slope()
+                cellgraph.graph_half_reimport()
+                cellgraph.save_figure(PATH_TO_FIGURES)
+                # print(f"Finished with cell {cellgraph.id}")
+            else:
+                # print(f"Cell {id} does not meet conditions")
+                plt.close()
 
     Final_CSV(PATH_TO_SAVING_DIRECTORY / path_to_csv.stem, PATH_TO_SINGLE_CSVS)
 print("End of Analysis")

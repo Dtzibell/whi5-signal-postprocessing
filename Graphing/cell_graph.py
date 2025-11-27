@@ -611,6 +611,14 @@ class CellGraph:
             inflection_points: np.ndarray = self.find_inflection_points(
                 self.y_starvation[trough : peak + 1]
             )
+            if self.id == 6:
+                print(inflection_points, self.slopes_starvation[trough:peak+1][inflection_points])
+                self.ax2.vlines(
+                        self.x[self.STARVATION_START+inflection_points-self.STARVATION_DECREMENT],
+                        ymin = 0,
+                        ymax = 1,
+                        color = "r",
+                        )
             inflection_point: float = weigh(
                 inflection_points,
                 self.slopes_starvation[trough : peak + 1][inflection_points],
@@ -643,9 +651,7 @@ class CellGraph:
     def get_reimport_onset(self, factor) -> int:
         interval = 5
         if self.y_starvation.size > 1:
-            self.slopes_starvation = derive(
-                normalize(self.y[self.starvation_start - self.STARVATION_DECREMENT: self.starvation_end]), 1
-            )
+            self.slopes_starvation = derive(self.y_starvation, 1)
             self.ax2.plot(self.x_starvation, self.slopes_starvation, ls="--", c="b")
             for idx in range(self.y_starvation.size - interval):
                 if (

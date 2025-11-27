@@ -52,7 +52,9 @@ def weigh(x: list[float] | np.ndarray, weights: np.ndarray) -> int:
     @param weights: np.ndarray; weights by which x is to be averaged
     """
     norm_weights = weights / np.sum(weights)
+    print(norm_weights)
     average_x = np.sum(x * norm_weights)
+    print(average_x)
     return average_x
 
 
