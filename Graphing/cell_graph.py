@@ -643,7 +643,9 @@ class CellGraph:
     def get_reimport_onset(self, factor) -> int:
         interval = 5
         if self.y_starvation.size > 1:
-            self.slopes_starvation = derive(self.y_starvation, 1)
+            self.slopes_starvation = derive(
+                normalize(self.y[self.starvation_start - self.STARVATION_DECREMENT: self.starvation_end]), 1
+            )
             self.ax2.plot(self.x_starvation, self.slopes_starvation, ls="--", c="b")
             for idx in range(self.y_starvation.size - interval):
                 if (
