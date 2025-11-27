@@ -4,7 +4,6 @@ from numpy.typing import ArrayLike
 import scipy.signal
 from pybaselines import Baseline
 
-
 def smoothen(y: Iterable, window_length=10, polyorder=3, mode="nearest") -> np.ndarray:
     """
     Smoothens y
@@ -20,7 +19,7 @@ def get_baseline(x: ArrayLike, y: ArrayLike) -> np.ndarray:
     Implements AsLS baseline removal algorithm.
 
     Read more:
-        Baseline Correction with Asymmetric Least Squares Smoothing, Eilers & Boelens, 2005. Contact Tauras for paper if cant find.
+        Baseline Correction with Asymmetric Least Squares Smoothing, Eilers & Boelens, 2005.
     """
     baseline_fitter = Baseline(x_data=x)
     baseline = baseline_fitter.asls(y, lam=1e4, p=0.01)[0]
@@ -52,11 +51,8 @@ def weigh(x: list[float] | np.ndarray, weights: np.ndarray) -> int:
     @param weights: np.ndarray; weights by which x is to be averaged
     """
     norm_weights = weights / np.sum(weights)
-    print(norm_weights)
     average_x = np.sum(x * norm_weights)
-    print(average_x)
     return average_x
-
 
 def normalize(arr: np.ndarray):
     arr_less_min = arr - np.min(arr)

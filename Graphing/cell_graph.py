@@ -284,7 +284,7 @@ class CellGraph:
         self.ax1.plot(self.x, self.y_normalized, c="k")
         self.ax2.plot(self.x, self.y_normalized, c="k")
         self.ax1.plot(self.x_growth, self.y_growth, ls="--", c="k", alpha=0.3)
-        self.ax2.plot(self.x_starvation, self.y_starvation, ls="--", c="k", alpha=0.3)
+        #self.ax2.plot(self.x_starvation, self.y_starvation, ls="--", c="k", alpha=0.3)
 
     def graph_peaks_troughs(self, SINGLE_CSV_SAVING_DIR: pathlib.Path) -> None:
         """
@@ -590,10 +590,8 @@ class CellGraph:
     def graph_half_reimport(self):
         trough: int = self.get_reimport_onset(factor=0.005)
         peak: int = self.get_reimport_peak(0.8)
-        # inflection_points: list[int] = list(self.find_inflection_points(self.y_starvation[trough:peak]))
-        # average_inflection_point = weigh(list(inflection_points), self.slopes_starvation[inflection_points])
-        # self.ax2.vlines(average_inflection_point, ymin=0, ymax=1, color="b")
         if trough >= 0 and peak >= 0:
+            inflection_point = self.average_inflp(self.x_starvation[trough:peak+1], derive(self.y_starvation[trough:peak+1],1))
             self.ax2.plot(
                 self.time_at_(self.starvation_start + peak - self.STARVATION_DECREMENT),
                 self.normalized_signal_at_(
@@ -608,36 +606,24 @@ class CellGraph:
                 ),
                 "+",
             )
-            inflection_points: np.ndarray = self.find_inflection_points(
-                self.y_starvation[trough : peak + 1]
-            )
-            if self.id == 6:
-                print(inflection_points, self.slopes_starvation[trough:peak+1][inflection_points])
-                self.ax2.vlines(
-                        self.x[self.STARVATION_START+inflection_points-self.STARVATION_DECREMENT],
-                        ymin = 0,
-                        ymax = 1,
-                        color = "r",
-                        )
-            inflection_point: float = weigh(
-                inflection_points,
-                self.slopes_starvation[trough : peak + 1][inflection_points],
-            )
-            inflection_time = (
-                self.STARVATION_START + inflection_point
-            ) * self.IMAGING_RATE
+
             self.ax2.vlines(
-                (self.STARVATION_START + inflection_point) * self.IMAGING_RATE,
+                inflection_point,
                 ymin=0,
                 ymax=1,
                 color="b",
             )
             self.ax2.text(
-                (self.STARVATION_START + inflection_point) * self.IMAGING_RATE + 5,
+                inflection_point + 5,
                 0.95,
-                str(int(round(inflection_time, 2))),
+                str(int(round(inflection_point, 2))),
                 rotation=90,
             )
+
+    def average_inflp(self,y,d1y):
+        weights = d1y / np.sum(d1y)
+        average_infl = np.sum(y*weights)
+        return average_infl
 
     def get_reimport_peak(self, factor):
         peaks: np.ndarray = (
@@ -652,7 +638,7 @@ class CellGraph:
         interval = 5
         if self.y_starvation.size > 1:
             self.slopes_starvation = derive(self.y_starvation, 1)
-            self.ax2.plot(self.x_starvation, self.slopes_starvation, ls="--", c="b")
+        #    self.ax2.plot(self.x_starvation, self.slopes_starvation, ls="--", c="b")
             for idx in range(self.y_starvation.size - interval):
                 if (
                     self.starvation_signal_at_(idx + interval)
