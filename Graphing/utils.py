@@ -25,26 +25,6 @@ def get_baseline(x: ArrayLike, y: ArrayLike) -> np.ndarray:
     baseline = baseline_fitter.asls(y, lam=1e4, p=0.01)[0]
     return baseline
 
-def get_min(*arrays: np.ndarray) -> float:
-    """
-    Denoises the data and scales to 1
-    """
-    arr = np.array([])
-    for a in arrays:
-        arr = np.append(arr, a)
-    _min = np.min(arr)
-    return _min
-
-def get_max(*arrays: np.ndarray) -> float:
-    """
-    Denoises the data and scales to 1
-    """
-    arr = np.array([])
-    for a in arrays:
-        arr = np.append(arr, a)
-    _max = np.max(arr)
-    return _max
-
 def subtract_baseline(x: np.ndarray, y: np.ndarray):
     baseline = get_baseline(x, y)
     y_growth = np.maximum(y - baseline, 0)

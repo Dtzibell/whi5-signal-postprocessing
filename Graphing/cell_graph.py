@@ -10,8 +10,6 @@ from Graphing.utils import (
     normalize,
     smoothen,
     subtract_baseline,
-    get_max,
-    get_min,
     weigh,
 )
 from collections import defaultdict
@@ -118,11 +116,26 @@ class CellGraph:
             return y_signal_1 / y_signal_2
         return self.cell_df[self.CHANNEL1].to_numpy()  # e.g. Quad2_mCherry_CV
 
+    def time_at_(self, frame):
+        return self.x[frame]
+
+    def growth_signal_at_(self, frame):
+        return self.y_growth[frame]
+
+    def starvation_signal_at_(self, frame):
+        return self.y_starvation[frame]
+
+    def recovery_signal_at(self, frame):
+        return self.y_recovery[frame]
+
+    def normalized_signal_at_(self, frame):
+        return self.y_normalized[frame]
+
     def initialize_figure(self, tick_interval: float = 40) -> None:
         """
         Initializes the cell's figure by constructing and designing the axes.
 
-        This function creates a plot that has 3 separated segments that share the x axis. 
+        This function creates a plot that has 3 separated segments that share the x axis.
         The y axis flanks the graph from both sides.
 
         @param tick_interval: float; time between two x ticks of the figure
@@ -296,7 +309,9 @@ class CellGraph:
         @param distance: int; smallest amount of frames between two peaks
         """
         peaks: np.ndarray = np.array(
-                scipy.signal.find_peaks(self.y_growth[:-self.GROWTH_INCREMENT], prominence=0.15)[0]
+            scipy.signal.find_peaks(
+                self.y_growth[: -self.GROWTH_INCREMENT], prominence=0.2
+            )[0]
         )
         # proms = scipy.signal.peak_prominences(self.y_growth, peaks)[0]
         # contour_heights = self.y_growth[peaks] - proms
@@ -378,7 +393,7 @@ class CellGraph:
             self.time_to_starvation: list[float]; time until STARVATION_START in minutes
             self.slopes_growth: np.ndarray; first derivative of y signal
         """
-        raw_inflection_points: np.ndarray = self.find_inflection_points()
+        raw_inflection_points: np.ndarray = self.find_inflection_points(self.y_growth)
         whi5_exports: list[int] = self.filter_whi5_exports(raw_inflection_points)
         exports_of_interest, times_to_starvation = self.filter_within_time(
             whi5_exports, 150
@@ -409,11 +424,11 @@ class CellGraph:
                 rotation=90,
             )
 
-    def find_inflection_points(self) -> np.ndarray:
+    def find_inflection_points(self, y) -> np.ndarray:
         """
         Gets inflection points
         """
-        second_derivative: np.ndarray = derive(self.y_growth, 2)
+        second_derivative: np.ndarray = derive(y, 2)
         inflection_points: np.ndarray = np.nonzero(np.diff(np.sign(second_derivative)))[
             0
         ]
@@ -474,7 +489,7 @@ class CellGraph:
 
         """
         # for some reason a tuple cannot consist of 1 element, so a second one is automatically added. 0th index deals with it
-        self.slopes_starvation = derive(self.y_starvation, 1)
+        self.slopes_starvation: np.ndarray = derive(self.y_starvation, 1)
         self.reimport_onset_x, self.reimport_onset_y = self.find_reimport_onset()
         self.end_of_reimport_x, self.end_of_reimport_y = self.find_end_of_reimport()
         if (
@@ -570,39 +585,19 @@ class CellGraph:
         slope_of_slope: np.ndarray = np.gradient(y_of_slope, x_of_slope)
         return slope_of_slope, x_of_slope, y_of_slope
 
-    def time_at_(self, frame):
-        return self.x[frame]
-
-    def growth_signal_at_(self, frame):
-        return self.y_growth[frame]
-
-    def smooth_signal_at_(self, frame):
-        return self.y_less_min[frame]
-
     def graph_half_reimport(self):
-        try:
-            export_signal = self.smooth_signal_at_(round(int(self.export)))
-            for idx, val in enumerate(self.y_starvation[self.STARVATION_DECREMENT :]):
-                if val > export_signal:
-                    first_encounter_within_starvation = (
-                        (idx + self.STARVATION_START) * 3,
-                        val,
-                    )
-                    self.ax2.plot(
-                        first_encounter_within_starvation[0],
-                        first_encounter_within_starvation[1],
-                        ".",
-                        markersize=20,
-                        color="g",
-                    )
-                    self.ax2.text(
-                        first_encounter_within_starvation[0],
-                        first_encounter_within_starvation[1] - 0.05,
-                        f"val = {first_encounter_within_starvation[0]}",
-                    )
-                    break
-        except AttributeError:
-            pass
+        # trough: int = self.get_reimport_onset()
+        peak: int = (scipy.signal.find_peaks(self.y_starvation,prominence=0.2))[0][0]
+        # print(trough, peak)
+        # inflection_points: list[int] = list(self.find_inflection_points(self.y_starvation[trough:peak]))
+        # average_inflection_point = weigh(list(inflection_points), self.slopes_starvation[inflection_points])
+        # self.ax2.vlines(average_inflection_point, ymin=0, ymax=1, color="b")
+        self.ax2.plot(self.x_starvation[peak], self.starvation_signal_at_(peak), "+")
+
+    def get_reimport_onset(self) -> int:
+        self.slopes_starvation = derive(self.y_starvation, 1)
+        trough = np.nonzero(np.diff(np.sign(self.slopes_starvation)))[0][0]
+        return trough
 
     def save_figure(self, PATH_TO_FIGURES: pathlib.Path):
         """
