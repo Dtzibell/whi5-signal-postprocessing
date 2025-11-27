@@ -58,7 +58,8 @@ for path_to_csv in PATH_TO_CSVS:
         )
 
         if (
-            cellgraph.birth_frame + 8 <= STARVATION_START < cellgraph.death_frame
+            cellgraph.birth_frame + 5 <= STARVATION_START < cellgraph.death_frame
+            # and id == 26
         ):
             cellgraph.initialize_figure(tick_interval=40)
             cellgraph.graph_base()

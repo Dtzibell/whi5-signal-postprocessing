@@ -3,7 +3,6 @@ from typing import Iterable
 import numpy as np
 import polars as pl
 import matplotlib.pyplot as plt
-from pybaselines import smooth
 import scipy.signal
 from Graphing.utils import (
     derive,
@@ -76,7 +75,7 @@ class CellGraph:
         self.CHANNEL1 = CHANNEL1
         self.CHANNEL2 = CHANNEL2
         self.GROWTH_INCREMENT = 5
-        self.STARVATION_DECREMENT = 8
+        self.STARVATION_DECREMENT = 5
 
         self.cell_df: pl.DataFrame = cell_df
         self.id: int = id
@@ -118,6 +117,9 @@ class CellGraph:
 
     def time_at_(self, frame):
         return self.x[frame]
+
+    def starvation_time_at_(self, frame):
+        return self.x_starvation[frame]
 
     def growth_signal_at_(self, frame):
         return self.y_growth[frame]
@@ -260,8 +262,8 @@ class CellGraph:
             self.y[
                 self.starvation_start - self.STARVATION_DECREMENT : self.starvation_end
             ],
-            window_length=window_length,
-            polyorder=polyorder,
+            window_length=10,
+            polyorder=3,
         )
         if self.starvation_end + self.birth_frame > self.STARVATION_END:
             y_recovery = smoothen(
@@ -586,18 +588,72 @@ class CellGraph:
         return slope_of_slope, x_of_slope, y_of_slope
 
     def graph_half_reimport(self):
-        # trough: int = self.get_reimport_onset()
-        peak: int = (scipy.signal.find_peaks(self.y_starvation,prominence=0.2))[0][0]
-        # print(trough, peak)
+        trough: int = self.get_reimport_onset(factor=0.005)
+        peak: int = self.get_reimport_peak(0.8)
         # inflection_points: list[int] = list(self.find_inflection_points(self.y_starvation[trough:peak]))
         # average_inflection_point = weigh(list(inflection_points), self.slopes_starvation[inflection_points])
         # self.ax2.vlines(average_inflection_point, ymin=0, ymax=1, color="b")
-        self.ax2.plot(self.x_starvation[peak], self.starvation_signal_at_(peak), "+")
+        if trough >= 0 and peak >= 0:
+            self.ax2.plot(
+                self.time_at_(self.starvation_start + peak - self.STARVATION_DECREMENT),
+                self.normalized_signal_at_(
+                    self.starvation_start + peak - self.STARVATION_DECREMENT
+                ),
+                "+",
+            )
+            self.ax2.plot(
+                self.x[self.starvation_start + trough - self.STARVATION_DECREMENT],
+                self.normalized_signal_at_(
+                    self.starvation_start + trough - self.STARVATION_DECREMENT
+                ),
+                "+",
+            )
+            inflection_points: np.ndarray = self.find_inflection_points(
+                self.y_starvation[trough : peak + 1]
+            )
+            inflection_point: float = weigh(
+                inflection_points,
+                self.slopes_starvation[trough : peak + 1][inflection_points],
+            )
+            inflection_time = (
+                self.STARVATION_START + inflection_point
+            ) * self.IMAGING_RATE
+            self.ax2.vlines(
+                (self.STARVATION_START + inflection_point) * self.IMAGING_RATE,
+                ymin=0,
+                ymax=1,
+                color="b",
+            )
+            self.ax2.text(
+                (self.STARVATION_START + inflection_point) * self.IMAGING_RATE + 5,
+                0.95,
+                str(int(round(inflection_time, 2))),
+                rotation=90,
+            )
 
-    def get_reimport_onset(self) -> int:
-        self.slopes_starvation = derive(self.y_starvation, 1)
-        trough = np.nonzero(np.diff(np.sign(self.slopes_starvation)))[0][0]
-        return trough
+    def get_reimport_peak(self, factor):
+        peaks: np.ndarray = (
+            scipy.signal.find_peaks(self.y_starvation, prominence=0.03)
+        )[0]
+        for p in peaks:
+            if self.starvation_signal_at_(p) > factor:
+                return p
+        return -1
+
+    def get_reimport_onset(self, factor) -> int:
+        interval = 5
+        if self.y_starvation.size > 1:
+            self.slopes_starvation = derive(self.y_starvation, 1)
+            self.ax2.plot(self.x_starvation, self.slopes_starvation, ls="--", c="b")
+            for idx in range(self.y_starvation.size - interval):
+                if (
+                    self.starvation_signal_at_(idx + interval)
+                    > (1 + factor * self.starvation_signal_at_(idx)) ** interval
+                    * self.starvation_signal_at_(idx)
+                    and np.diff(self.y_starvation[idx : idx + 2]) > 0
+                ):
+                    return idx
+        return -1
 
     def save_figure(self, PATH_TO_FIGURES: pathlib.Path):
         """
