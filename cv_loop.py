@@ -1,10 +1,6 @@
 import polars as pl
 from polars import col as c
-import numpy as np
 import matplotlib.pyplot as plt
-from scipy import signal
-from scipy.signal import find_peaks
-from Array_Pairs_Index_to_Time import pair_peaks
 from File_Importer import gather_input, setup_directory
 from Final_CSV import Final_CSV
 from Graphing import CellGraph
@@ -65,12 +61,9 @@ for path_to_csv in PATH_TO_CSVS:
             cellgraph.graph_base()
             cellgraph.graph_peaks_troughs(PATH_TO_SINGLE_CSVS)
             cellgraph.graph_whi5_exports()
-            # cellgraph.graph_slope()
             cellgraph.graph_half_reimport()
             cellgraph.save_figure(PATH_TO_FIGURES)
-            # print(f"Finished with cell {cellgraph.id}")
         else:
-            # print(f"Cell {id} does not meet conditions")
             plt.close()
 
     Final_CSV(PATH_TO_SAVING_DIRECTORY / path_to_csv.stem, PATH_TO_SINGLE_CSVS)
