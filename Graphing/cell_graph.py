@@ -75,7 +75,7 @@ class CellGraph:
         self.CHANNEL1 = CHANNEL1
         self.CHANNEL2 = CHANNEL2
         self.GROWTH_INCREMENT = 5
-        self.STARVATION_DECREMENT = 5
+        self.STARVATION_DECREMENT = 8
 
         self.cell_df: pl.DataFrame = cell_df
         self.id: int = id
@@ -284,7 +284,7 @@ class CellGraph:
         self.ax1.plot(self.x, self.y_normalized, c="k")
         self.ax2.plot(self.x, self.y_normalized, c="k")
         self.ax1.plot(self.x_growth, self.y_growth, ls="--", c="k", alpha=0.3)
-        #self.ax2.plot(self.x_starvation, self.y_starvation, ls="--", c="k", alpha=0.3)
+        self.ax2.plot(self.x_starvation, self.y_starvation, ls="--", c="k", alpha=0.3)
 
     def graph_peaks_troughs(self, SINGLE_CSV_SAVING_DIR: pathlib.Path) -> None:
         """
@@ -395,36 +395,42 @@ class CellGraph:
             self.time_to_starvation: list[float]; time until STARVATION_START in minutes
             self.slopes_growth: np.ndarray; first derivative of y signal
         """
-        raw_inflection_points: np.ndarray = self.find_inflection_points(self.y_growth)
-        whi5_exports: list[int] = self.filter_whi5_exports(raw_inflection_points)
-        exports_of_interest, times_to_starvation = self.filter_within_time(
-            whi5_exports, 150
-        )
-
-        exports: list[float] = []
-        times: list[float] = []
-        for i in range(len(exports_of_interest)):
-            if self.peaks[-1] < exports_of_interest[i] < self.troughs[-1]:
-                exports.append(exports_of_interest[i])
-                times.append(times_to_starvation[i])
-
-        slopes_paired = self.slopes_growth[np.round(exports).astype(int)]
-
-        if slopes_paired.size > 0 and np.max(slopes_paired) != 0:
-            self.export: int = weigh(exports, slopes_paired)
-            self.time_to_starvation: float = weigh(times, slopes_paired)
-            self.ax1.vlines(
-                x=(self.birth_frame + self.export) * 3,
-                ymin=0,
-                ymax=1,
-                color="b",
-            )
+        if self.peaks.size > 0:
+            x_growth_last_peak = self.x_growth[self.peaks[-1]: self.paired_troughs[-1]]
+            d1y = derive(x_growth_last_peak, 1)
+            average_inflp = self.average_inflp(x_growth_last_peak, d1y)
+            self.ax1.vlines(average_inflp, ymin=0, ymax=1, color="b")
             self.ax1.text(
-                (self.birth_frame + self.export) * 3 + 5,
+                average_inflp + 5,
                 0.95,
-                str(round((self.starvation_start - self.time_to_starvation) * 3)),
+                str(round(average_inflp, 2)),
                 rotation=90,
             )
+
+        # raw_inflection_points: np.ndarray = self.find_inflection_points(self.y_growth)
+        # whi5_exports: list[int] = self.filter_whi5_exports(raw_inflection_points)
+        # exports_of_interest, times_to_starvation = self.filter_within_time(
+        #     whi5_exports, 150
+        # )
+
+        # exports: list[float] = []
+        # times: list[float] = []
+        # for i in range(len(exports_of_interest)):
+        #     if self.peaks[-1] < exports_of_interest[i] < self.troughs[-1]:
+        #         exports.append(exports_of_interest[i])
+        #         times.append(times_to_starvation[i])
+
+        # slopes_paired = self.slopes_growth[np.round(exports).astype(int)]
+
+        # if slopes_paired.size > 0 and np.max(slopes_paired) != 0:
+        #     self.export: int = weigh(exports, slopes_paired)
+        #     self.time_to_starvation: float = weigh(times, slopes_paired)
+        #     self.ax1.vlines(
+        #         x=(self.birth_frame + self.export) * 3,
+        #         ymin=0,
+        #         ymax=1,
+        #         color="b",
+        #     )
 
     def find_inflection_points(self, y) -> np.ndarray:
         """
@@ -589,7 +595,7 @@ class CellGraph:
 
     def graph_half_reimport(self):
         trough: int = self.get_reimport_onset(factor=0.005)
-        peak: int = self.get_reimport_peak(0.8)
+        peak: int = self.get_reimport_peak(0.6)
         if trough >= 0 and peak >= 0:
             inflection_point = self.average_inflp(self.x_starvation[trough:peak+1], derive(self.y_starvation[trough:peak+1],1))
             self.ax2.plot(
