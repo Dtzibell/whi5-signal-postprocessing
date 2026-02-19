@@ -38,10 +38,10 @@ for path_to_csv in PATH_TO_CSVS:
     i = 0
     for id in cell_IDs:
         i += 1
-        print(f"Proceeding with cell {i}/{total_cells}, ID: {id}")
+        print(f"Proceeding with cell {i}/{total_cells}, ID: {round(int(id))}")
         cell_df = full_df.filter(c("Cell_ID") == id)
         cellgraph = CellGraph(
-            id,
+            round(int(id)),
             cell_df,
             STARVATION_START,
             STARVATION_END,

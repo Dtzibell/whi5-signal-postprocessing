@@ -173,9 +173,9 @@ class MainWindow(QMainWindow):
         self.directory_path.setText(
             r"/home/tauras/Desktop/"
         )  # paste full path to saving directory
-        self.starvation_start_frame.setValue(180)  # int of frame
+        self.starvation_start_frame.setValue(140)  # int of frame
         self.starvation_end_frame.setValue(260)  # int of frame
-        self.experiment_length.setValue(260)
+        self.experiment_length.setValue(320)
         self.image_acquisition_rate.setValue(3.0)  # float of acq rate
         self.fluorophore_channel_1.setText(
             r"mCherry_concentration_dataPrepBkgr_from_vol_fl"

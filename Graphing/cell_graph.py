@@ -99,7 +99,7 @@ class CellGraph:
         self.x_starvation = self.x[
             self.starvation_start - self.STARVATION_DECREMENT : self.starvation_end
         ]
-        self.x_recovery = self.x[self.starvation_end : self.lifespan + 1]
+        self.x_recovery = self.x[self.starvation_end : ]
 
         self.slope_multiplier = slope_multiplier
         self.slope_index = slope_index + 1
@@ -167,7 +167,7 @@ class CellGraph:
         self.figure, (self.ax1, self.ax2, self.ax3) = plt.subplots(
             1,
             3,
-            sharey=True,
+            # sharey=True,
             gridspec_kw={  # sets the width of individual subfigures in relation to the others
                 "width_ratios": [ratio_growth, ratio_starvation, ratio_recovery]
             },
@@ -178,9 +178,9 @@ class CellGraph:
         self.ax3.spines["left"].set_visible(False)
 
         self.ax1.yaxis.tick_left()
-        self.ax2.tick_params(left=False)
+        self.ax2.tick_params(left=False, labelleft=False)
         self.ax3.yaxis.tick_right()
-        self.ax3.tick_params(labelright="off")
+        self.ax3.tick_params(labelright=False)
 
         d = 0.015
         kwargs = dict(transform=self.ax1.transAxes, color="k", clip_on=False)
@@ -288,16 +288,6 @@ class CellGraph:
             window_length=window_length,
             polyorder=3,
         )
-        if self.starvation_end + self.birth_frame > self.STARVATION_END:
-            y_recovery = smoothen(
-                self.y[self.starvation_end : self.lifespan + 1],
-                window_length=window_length,
-                polyorder=polyorder,
-            )
-            y_recovery_less_bl = subtract_baseline(self.x_recovery, y_recovery)
-            self.y_recovery: np.ndarray = normalize(y_recovery_less_bl)
-            self.ax3.plot(self.x_recovery, self.y_recovery, "k", "--")
-            self.ax3.plot(self.x, y_full, "k")
 
         self.y_normalized: np.ndarray = normalize(y_full)
         self.y_growth: np.ndarray = normalize(y_growth_less_bl)
@@ -308,6 +298,17 @@ class CellGraph:
         self.ax2.plot(self.x, self.y_normalized, c="k")
         self.ax1.plot(self.x_growth, self.y_growth, ls="--", c="k", alpha=0.3)
         self.ax2.plot(self.x_starvation, self.y_starvation, ls="--", c="k", alpha=0.3)
+        if self.starvation_end + self.birth_frame < self.EXPERIMENT_LENGTH:
+            y_recovery = smoothen(
+                self.y[self.starvation_end : self.lifespan + 1],
+                window_length=window_length,
+                polyorder=polyorder,
+            )
+            y_recovery_less_bl = subtract_baseline(self.x_recovery, y_recovery)
+            self.y_recovery: np.ndarray = normalize(y_recovery_less_bl)
+            self.ax3.plot(self.x_recovery, self.y_recovery, ls="--", c="k", alpha=0.3)
+            self.ax3.plot(self.x, self.y_normalized, "k")
+            self.ax3.set_xlim(self.x_recovery[0], self.x_recovery[-1])
 
     def graph_peaks_troughs(self, SINGLE_CSV_SAVING_DIR: pathlib.Path) -> None:
         """
@@ -516,6 +517,9 @@ class CellGraph:
         Saves the figure.
         @param PATH_TO_FIGURES: pathlib.Path;
         """
+        self.ax3.set_yticks(np.arange(0,1,0.1))
+        self.ax1.set_yticks(np.arange(0,1,0.1))
+        print([t.get_text() for t in self.ax1.get_yticklabels()])
         self.figure.savefig(
             PATH_TO_FIGURES / f"Cell_{self.id}_Whi5_CV.png",
             bbox_inches="tight",
