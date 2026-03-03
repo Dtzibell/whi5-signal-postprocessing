@@ -1,6 +1,7 @@
 import pathlib
 
 from PyQt5.QtWidgets import (
+    QCompleter,
     QMainWindow,
     QApplication,
     QPushButton,
@@ -16,14 +17,19 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
 )  ## AP switched to PyQt5 for now
 import sys
+from configparser import ConfigParser
 
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        #### initialize the window ####
+        # initialize the configuration file
+        self.config = ConfigParser()
+        self.config.read("config.ini")
+        # initialize the configuration file
 
+        #### initialize the window ####
         self.setWindowTitle("ACDC evaluation")
         self.window_layout = QGridLayout()
 
@@ -33,25 +39,29 @@ class MainWindow(QMainWindow):
 
         self.input_layout = QVBoxLayout()
         self.cross_val_layout = QVBoxLayout()
-
         #### initialize the window ####
-
+        
         #### create input widgets ####
-
         # data button
         self.select_data_file = QPushButton("Select file")
         self.select_data_file.clicked.connect(self.open_file_selection)
         self.selected_files = []
-
-        # saving directory button
-        self.select_save_directory = QPushButton("Select save directory")
-        self.select_save_directory.clicked.connect(self.open_directory_selection)
 
         # is starvation box
         self.has_starvation_phase = QComboBox()
         self.has_starvation_phase.addItem("Yes")
         self.has_starvation_phase.addItem("No")
         self.has_starvation_phase.setDisabled(True)
+
+        # slope multiplier box
+        self.slope_multiplier = QDoubleSpinBox()
+        self.slope_multiplier.setMaximum(1)
+        self.slope_multiplier.setMinimum(0)
+        self.slope_multiplier.setValue(0.1)
+
+        # slope index box
+        self.slope_index = QSpinBox()
+        self.slope_index.setValue(5)
 
         # starvation start box
         self.starvation_start_frame = QSpinBox()
@@ -61,48 +71,32 @@ class MainWindow(QMainWindow):
         self.starvation_end_frame = QSpinBox()
         self.starvation_end_frame.setRange(0, 500)
 
-        # experiment length box
-        self.experiment_length = QSpinBox()
-        self.experiment_length.setRange(0, 500)
-
-        # imaging rate box
-        self.image_acquisition_rate = QDoubleSpinBox()
-        self.image_acquisition_rate.setRange(0, 10)
-        self.image_acquisition_rate.setValue(3)
-        self.image_acquisition_rate.setSingleStep(0.2)
-
         # double fluorophore box
         self.is_fret = QCheckBox()
         self.is_fret.toggled.connect(self.gen_channel_select)
 
         # fluorophore channels
-        self.fluorophore_channel_1 = QLineEdit()
+        self.fluorophore_channel_1 = QComboBox()
+        self.fluorophore_channel_1.setEditable(True)
+        choices = [s.strip() for s in self.config["FLUORESCENCE"]["SignalChoices"].split(",")]
+        self.fluorophore_channel_1.addItems(choices)
+        self.fluorophoreCompleter = QCompleter(choices)
+        self.fluorophore_channel_1.setCompleter(self.fluorophoreCompleter)
+
         self.fluorophore_channel_2 = QLineEdit()
 
         # end button
         self.end = QPushButton("OK")
-
-        #### create manipulable widgets ####
+        #### create input widgets ####
 
         #### create labels ####
-
         # located in cross_val layout
-        self.file_path_label = QLabel("Current file path: ")
-        self.directory_path_label = QLabel("Current directory path: ")
+        self.file_path_label = QLabel("Current file paths: ")
         self.slope_index_label = QLabel("Slope index: ")
         self.slope_multiplier_label = QLabel("Slope multiplier: ")
         self.file_path = QLabel()
         self.file_path.setObjectName("path")
         self.file_path.setWordWrap(True)
-        self.directory_path = QLabel()
-        self.directory_path.setObjectName("path")
-        self.directory_path.setWordWrap(True)
-        self.slope_index = QSpinBox()
-        self.slope_index.setValue(5)
-        self.slope_multiplier = QDoubleSpinBox()
-        self.slope_multiplier.setMaximum(1)
-        self.slope_multiplier.setMinimum(0)
-        self.slope_multiplier.setValue(0.1)
 
         # located in input_layout
         self.starvation_label = QLabel("Starvation? (has to be set to yes)")
@@ -112,93 +106,73 @@ class MainWindow(QMainWindow):
         self.imaging_rate_label = QLabel("Image acquisition rate:")
         self.is_fret_label = QLabel("FRET experiment?")
         self.fluorophore_select_label = QLabel("Fluorophore channel name:")
-
         #### create labels ####
 
         #### add widgets to input layout ####
-
         self.input_layout.addWidget(self.select_data_file)
-        self.input_layout.addWidget(self.select_save_directory)
         self.input_layout.addWidget(self.starvation_label)
         self.input_layout.addWidget(self.has_starvation_phase)
         self.input_layout.addWidget(self.starv_start_label)
         self.input_layout.addWidget(self.starvation_start_frame)
         self.input_layout.addWidget(self.starv_end_label)
         self.input_layout.addWidget(self.starvation_end_frame)
-        self.input_layout.addWidget(self.exp_length_label)
-        self.input_layout.addWidget(self.experiment_length)
-        self.input_layout.addWidget(self.imaging_rate_label)
-        self.input_layout.addWidget(self.image_acquisition_rate)
         self.input_layout.addWidget(self.is_fret_label)
         self.input_layout.addWidget(self.is_fret)
         self.input_layout.addWidget(self.fluorophore_select_label)
         self.input_layout.addWidget(self.fluorophore_channel_1)
         self.input_layout.addStretch()
-
         #### add widgets to input layout ####
 
         #### add widgets to cross validation layout ####
 
+        # add empty label to correct widget shift due to button
+        self.cross_val_layout.addSpacing(32)
+
         self.cross_val_layout.addWidget(self.file_path_label)
         self.cross_val_layout.addWidget(self.file_path)
-        self.cross_val_layout.addWidget(self.directory_path_label)
-        self.cross_val_layout.addWidget(self.directory_path)
         self.cross_val_layout.addWidget(self.slope_index_label)
         self.cross_val_layout.addWidget(self.slope_index)
         self.cross_val_layout.addWidget(self.slope_multiplier_label)
         self.cross_val_layout.addWidget(self.slope_multiplier)
         self.cross_val_layout.addStretch()
         self.cross_val_layout.addWidget(self.end)
-
         #### add widgets to cross validation layout ####
 
         #### add layouts to window_layout ####
-
-        # remember grid scaling
+        # add layouts to the main grid
         self.window_layout.addLayout(self.input_layout, 0, 0)
         self.window_layout.addLayout(self.cross_val_layout, 0, 1)
-
         #### add layouts to window_layout ####
 
         #### finalize central widget ####
-
         self.widget = QWidget()
         self.widget.setLayout(self.window_layout)
         self.setCentralWidget(self.widget)
-
         #### finalize central widget ####
 
-        #### personal changes ####
-        # if you want to make outputs static, edit the settings within this section
-        self.directory_path.setText(
-            r"/home/tauras/Desktop/"
-        )  # paste full path to saving directory
-        self.starvation_start_frame.setValue(140)  # int of frame
-        self.starvation_end_frame.setValue(260)  # int of frame
-        self.experiment_length.setValue(320)
-        self.image_acquisition_rate.setValue(3.0)  # float of acq rate
-        self.fluorophore_channel_1.setText(
-            r"mCherry_concentration_dataPrepBkgr_from_vol_fl"
-        )
+        #### load input presets from config.ini ####
+        self.starvation_start_frame.setValue(
+                int(self.config["INPUT_PRESETS"]["StarvationStartFrame"]))
+        self.starvation_end_frame.setValue(
+                int(self.config["INPUT_PRESETS"]["StarvationEndFrame"]))
+        #### load input presets from config.ini ####
 
     def open_file_selection(self):
         """
         Opens a file browser dialog for selection of file with data (.csv)
-        TODO: THE r"" PATH HAS TO BE MANUALLY EDITED: SOLUTION?
         :return: a string of the full path to the file
         """
-        default_dir = pathlib.Path().cwd()
+        default_dir = self.config["PATHS"]["DefaultDirectory"]
         file_dialog = QFileDialog.getOpenFileNames(
             None,
             "Select your data's .csv",
-            str(
-                default_dir
-            ),  # replace this line with string of your desired default directory
+            default_dir,
             "*.csv",
         )
         print(
             file_dialog
-        )  # output: list: [0] list of paths as strings, [1] type of files as string (ex. "*.csv")
+        )  # output: list: [0] list of paths as strings, 
+           # [1] type of files as string (ex. "*.csv")
         for path in file_dialog[0]:
             self.selected_files.append(
                 pathlib.Path(path)
@@ -220,22 +194,6 @@ class MainWindow(QMainWindow):
             else:
                 path_to_file = pathlib.Path(file_dialog[0][0])
                 self.file_path.setText(f"{str(path_to_file)}")
-
-    def open_directory_selection(self):
-        """
-        Analogous to open_file_selection. Opens home directory by default.
-        Intended for selection of directory for saving.
-        :return: a string of the full path to the directory
-        """
-
-        home_path = pathlib.Path.home()
-        path_to_directory = QFileDialog.getExistingDirectory(
-            None, "Select your saving directory", str(home_path)
-        )
-        if len(path_to_directory) > 1:
-            path_to_directory = pathlib.Path(path_to_directory)
-            self.directory_path.setText(f"{str(path_to_directory)}")
-            return path_to_directory
 
     def gen_channel_select(self):
         if self.is_fret.isChecked():
@@ -281,15 +239,9 @@ def gather_input():
     # after the application ends, collect values:
     #### I/O ####
     path_to_files = window.selected_files
-    path_to_directory = pathlib.Path(window.directory_path.text()) / "Results"
-    # is_starvation = window.has_starvation_phase.currentText()
     starvation_start = int(window.starvation_start_frame.text())
     starvation_end = int(window.starvation_end_frame.text())
-    experiment_length = int(window.experiment_length.text())
-    # only an issue on my system? qspinbox makes , separated floats
-    acquisition_rate = float(window.image_acquisition_rate.text().replace(",", "."))
-    is_fret = window.is_fret.isChecked()
-    channel_1 = window.fluorophore_channel_1.text()
+    channel_1 = window.fluorophore_channel_1.currentText()
     channel_2 = window.fluorophore_channel_2.text()
     slope_index = int(window.slope_index.text())
     slope_multiplier = float(window.slope_multiplier.text())
@@ -303,11 +255,8 @@ def gather_input():
 
     return (
         path_to_files,
-        path_to_directory,
         starvation_start,
         starvation_end,
-        experiment_length,
-        acquisition_rate,
         channel_1,
         channel_2,
         slope_index,

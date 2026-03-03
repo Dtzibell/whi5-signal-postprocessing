@@ -1,22 +1,24 @@
+from numpy import full
 import polars as pl
 from polars import col as c
 import matplotlib.pyplot as plt
+from polars import schema
 from File_Importer import gather_input, setup_directory
 from Final_CSV import Final_CSV
 from Graphing import CellGraph
 import time
+from configparser import ConfigParser
+from pathlib import Path
 
-#### INPUT/OUTPUT ####
-# opens the UI, gets a bunch of inputs and assigns them to variables. paths are pathlib.Paths,
-# STARVATION_START and _end are ints, imaging rate is a float, is_fret is a bool, channels are strings
-# TODO: does float64 cause errors?
+config = ConfigParser()
+config.read("config.ini")
+PATH_TO_OUTPUT_DIR = Path(config["PATHS"]["ResultsDirectory"])
+print(f"The output will be saved to {PATH_TO_OUTPUT_DIR}")
+
 (
     PATH_TO_CSVS,
-    PATH_TO_SAVING_DIRECTORY,
     STARVATION_START,
     STARVATION_END,
-    EXPERIMENT_LENGTH,
-    IMAGING_RATE,
     CHANNEL1,
     CHANNEL2,
     SLOPE_INDEX,
@@ -24,22 +26,40 @@ import time
 ) = gather_input()
 time_start = time.time()
 
-for path_to_csv in PATH_TO_CSVS:
-    print(f"Proceeding with file: {path_to_csv.stem}")
+for csv in PATH_TO_CSVS:
+    print(f"Proceeding with file: {csv.stem}")
     # sets up directory for figures, raw find peaks and single cell csvs, outputs pathlib.Paths of each directory
     PATH_TO_FIGURES, PATH_TO_SINGLE_CSVS = setup_directory(
-        PATH_TO_SAVING_DIRECTORY, path_to_csv.stem
+        PATH_TO_OUTPUT_DIR, csv.stem
     )
-    full_df = pl.read_csv(path_to_csv)
+    relevant_columns = ["time_minutes",
+                        "Cell_ID",
+                        CHANNEL1,
+                        ]
+    if CHANNEL2 != "":
+        relevant_columns.append(CHANNEL2)
+    full_df = (pl
+               .scan_csv(csv)
+               .select(relevant_columns)
+               .collect()
+               )
+    print(full_df.collect_schema())
+    partitioned_df = full_df.partition_by("Cell_ID", as_dict=True)
+    EXPERIMENT_LENGTH = full_df[-1, "time_minutes"]
+    IMAGING_RATE = partitioned_df[(1,)][1,"time_minutes"] - partitioned_df[(1,)][0, "time_minutes"]
     cell_IDs = (
-        full_df.unique(subset=["Cell_ID"]).select(c("Cell_ID")).to_numpy().flatten()
+        full_df
+        .get_column("Cell_ID")
+        .unique()
     )
-    total_cells = cell_IDs.size
+    # [0] gets the height of the series
+    total_cells = cell_IDs.shape[0]
     i = 0
-    for id in cell_IDs:
+    for key in partitioned_df.keys():
         i += 1
-        print(f"Proceeding with cell {i}/{total_cells}, ID: {round(int(id))}")
-        cell_df = full_df.filter(c("Cell_ID") == id)
+        id = key[0]
+        print(f"Proceeding with cell {i}/{total_cells}, ID: {int(id)}")
+        cell_df = partitioned_df[key]
         cellgraph = CellGraph(
             round(int(id)),
             cell_df,
@@ -66,7 +86,7 @@ for path_to_csv in PATH_TO_CSVS:
         else:
             plt.close()
 
-    Final_CSV(PATH_TO_SAVING_DIRECTORY / path_to_csv.stem, PATH_TO_SINGLE_CSVS)
+    Final_CSV(PATH_TO_OUTPUT_DIR / csv.stem, PATH_TO_SINGLE_CSVS)
 print("End of Analysis")
 delta_time = time.time() - time_start
 print(f"Finished in: {delta_time}")
