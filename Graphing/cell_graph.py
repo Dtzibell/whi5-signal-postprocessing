@@ -1,7 +1,7 @@
 import pathlib
-from typing import Iterable
 import numpy as np
 import polars as pl
+from polars import col as c
 import matplotlib.pyplot as plt
 import scipy.signal
 from Graphing.utils import (
@@ -79,52 +79,92 @@ class CellGraph:
         self.EXPERIMENT_LENGTH = EXPERIMENT_LENGTH
         self.CHANNEL1 = CHANNEL1
         self.CHANNEL2 = CHANNEL2
+
+        # motivation for these variables: the last Whi5 export 
+        # is not accurate if it goes outside the bounds of the
+        # pre-starvation graph. The same applies to starvation
+        # phase, where a Whi5 reimport is looked for. The shift
+        # likely happens because of smoothing of the graph.
+        # Values tend to shift.
         self.GROWTH_INCREMENT = 5
         self.STARVATION_DECREMENT = 8
 
         self.cell_df: pl.DataFrame = cell_df
         self.id: int = id
 
-        self.x: np.ndarray = self.get_x()
-        self.y: np.ndarray = self.get_y()
+        self.x: pl.Series = self.get_x()
+        self.y: pl.Series = self.get_y()
 
-        self.birth_frame: int = np.round(min(self.x) / self.IMAGING_RATE).astype(int)
-        self.death_frame: int = np.round(max(self.x) / self.IMAGING_RATE).astype(int)
-        self.lifespan: int = self.x.size
+        # is this still needed if I can refer to both time and
+        # frames?
+        # self.birth_frame: int = np.round(min(self.x) / self.IMAGING_RATE).astype(int)
+        # self.death_frame: int = np.round(max(self.x) / self.IMAGING_RATE).astype(int)
 
-        self.starvation_start = STARVATION_START - self.birth_frame
-        self.starvation_end = STARVATION_END - self.birth_frame
+        self.lifespan: int = self.x.shape[0]
 
-        self.x_growth = self.x[: self.starvation_start + self.GROWTH_INCREMENT]
-        self.x_starvation = self.x[
-            self.starvation_start - self.STARVATION_DECREMENT : self.starvation_end
-        ]
-        self.x_recovery = self.x[self.starvation_end : ]
+        # is this still necessary?
+        # self.starvation_start = STARVATION_START - self.birth_frame
+        # self.starvation_end = STARVATION_END - self.birth_frame
+
+        self.prestarvation = self.get_prestarvation_df()
+        self.starvation = self.get_starvation_df()
+        self.poststarvation = self.get_poststarvation_df()
 
         self.slope_multiplier = slope_multiplier
         self.slope_index = slope_index + 1
 
-    def get_x(self) -> np.ndarray:
+    def get_x(self) -> pl.Series:
         """
         Returns time points in minutes.
         """
-        return self.cell_df["time_minutes"].to_numpy()
+        return self.cell_df.get_column("time_minutes")
 
-    def get_y(self) -> np.ndarray:
+    def get_y(self) -> pl.Series:
         """
         Returns y signal. Converts to FRET signal and returns if CHANNEL2 is given.
         """
-        if self.CHANNEL2 != "":
-            y_signal_1: np.ndarray = self.cell_df[self.CHANNEL1].to_numpy()
-            y_signal_2: np.ndarray = self.cell_df[self.CHANNEL2].to_numpy()
-            return y_signal_1 / y_signal_2
-        return self.cell_df[self.CHANNEL1].to_numpy()  # e.g. Quad2_mCherry_CV
+        match self.CHANNEL2:
+            case "":
+                return self.cell_df.get_column(self.CHANNEL1)
+            case str():
+                y_signal_1: pl.Series = self.cell_df.get_column(self.CHANNEL1)
+                y_signal_2: pl.Series = self.cell_df.get_column(self.CHANNEL2)
+                return y_signal_1 / y_signal_2
 
-    def time_at_(self, frame):
+    def get_prestarvation_df(self):
+        return self.cell_df.filter(c("time_minutes") < self.STARVATION_START)
+
+    def get_starvation_df(self):
+        return (self.cell_df
+                .filter(self.STARVATION_END > 
+                        c("time_minutes") >
+                        self.STARVATION_START)
+                )
+
+    def get_poststarvation_df(self):
+        return self.cell_df.filter(c("time_minutes") > self.STARVATION_END)
+    
+    def get_birth_frame(self):
+        return self.cell_df[0, "frame_i"]
+
+    def get_death_frame(self):
+        return self.cell_df[-1, "frame_i"]
+
+    def time_at_(self, frames: pl.Series | int):
         """
-        Returns the time point at frame.
+        Returns the time in minutes at frames.
         """
-        return self.x[frame]
+
+        match frames:
+            case pl.Series():
+                return (self.cell_df.lazy()
+                        .select(["frame_i", "time_minutes"])
+                        .filter(c("frame_i").is_in(frames))
+                        .collect()
+                        .get_column("time_minutes")
+                        )
+            case int():
+                return self.cell_df[frames, "time_minutes"]
 
     def growth_time_at(self, frame):
         """

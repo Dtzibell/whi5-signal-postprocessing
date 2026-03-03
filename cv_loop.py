@@ -43,7 +43,6 @@ for csv in PATH_TO_CSVS:
                .select(relevant_columns)
                .collect()
                )
-    print(full_df.collect_schema())
     partitioned_df = full_df.partition_by("Cell_ID", as_dict=True)
     EXPERIMENT_LENGTH = full_df[-1, "time_minutes"]
     IMAGING_RATE = partitioned_df[(1,)][1,"time_minutes"] - partitioned_df[(1,)][0, "time_minutes"]
@@ -74,7 +73,9 @@ for csv in PATH_TO_CSVS:
         )
 
         if (
-            cellgraph.birth_frame + 8 <= STARVATION_START < cellgraph.death_frame
+            cellgraph.get_birth_frame() + 8 <= 
+            STARVATION_START <
+            cellgraph.get_death_frame()
             # and id == 26
         ):
             cellgraph.initialize_figure(tick_interval=40)
