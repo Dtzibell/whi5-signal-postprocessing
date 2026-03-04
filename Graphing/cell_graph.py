@@ -12,6 +12,18 @@ from Graphing.utils import (
 )
 from collections import defaultdict
 
+class Lifespan:
+    """
+    A container class for a cells lifespan
+    The values are stored in frames
+    """
+
+    def __init__(self, start, end):
+        self.start = start
+        self.end = end
+        self.duration = end - start
+
+
 """
 Does not work on cells that go missing and later reappear, but probably unnecessary?
 """
@@ -73,45 +85,45 @@ class CellGraph:
             self.slope_multiplier: int; Refer to look_forward for description
             self.slope_index: int; Refer to look_forward for description
         """
-        self.STARVATION_START = STARVATION_START
-        self.STARVATION_END = STARVATION_END
-        self.IMAGING_RATE = IMAGING_RATE
-        self.EXPERIMENT_LENGTH = EXPERIMENT_LENGTH
-        self.CHANNEL1 = CHANNEL1
-        self.CHANNEL2 = CHANNEL2
+        self.cell_df: pl.DataFrame = cell_df
+        self.id: int = id
+        self.STARVATION_START: int = STARVATION_START
+        self.STARVATION_END: int = STARVATION_END
+        self.IMAGING_RATE: float = IMAGING_RATE
+        self.EXPERIMENT_LENGTH: int = EXPERIMENT_LENGTH
+        self.CHANNEL1: str = CHANNEL1
+        self.CHANNEL2: str = CHANNEL2
 
-        # motivation for these variables: the last Whi5 export 
+        # motivation for these variables: the last Whi5 export
         # is not accurate if it goes outside the bounds of the
         # pre-starvation graph. The same applies to starvation
         # phase, where a Whi5 reimport is looked for. The shift
         # likely happens because of smoothing of the graph.
         # Values tend to shift.
-        self.GROWTH_INCREMENT = 5
-        self.STARVATION_DECREMENT = 8
+        self.GROWTH_INCREMENT: int = 5
+        self.STARVATION_DECREMENT: int = 5
 
-        self.cell_df: pl.DataFrame = cell_df
-        self.id: int = id
+        self.cell_df: pl.DataFrame = self.get_y()
 
-        self.x: pl.Series = self.get_x()
-        self.y: pl.Series = self.get_y()
+        self.lifespan: Lifespan = Lifespan(
+            self.cell_df[0, "frame_i"], self.cell_df[-1, "frame_i"]
+        )
 
-        # is this still needed if I can refer to both time and
-        # frames?
-        # self.birth_frame: int = np.round(min(self.x) / self.IMAGING_RATE).astype(int)
-        # self.death_frame: int = np.round(max(self.x) / self.IMAGING_RATE).astype(int)
+        self.has_starvation = (
+            self.cell_df.filter(
+                c("frame_i").is_in(range(self.STARVATION_START, self.STARVATION_END))
+            ).height
+            > 0
+        )
+        self.has_poststarvation = (
+            self.cell_df.filter(
+                c("frame_i").is_in(range(self.STARVATION_END, self.lifespan.end))
+            ).height
+            > 0
+        )
 
-        self.lifespan: int = self.x.shape[0]
-
-        # is this still necessary?
-        # self.starvation_start = STARVATION_START - self.birth_frame
-        # self.starvation_end = STARVATION_END - self.birth_frame
-
-        self.prestarvation = self.get_prestarvation_df()
-        self.starvation = self.get_starvation_df()
-        self.poststarvation = self.get_poststarvation_df()
-
-        self.slope_multiplier = slope_multiplier
-        self.slope_index = slope_index + 1
+        self.slope_multiplier: float = slope_multiplier
+        self.slope_index: int = slope_index + 1
 
     def get_x(self) -> pl.Series:
         """
@@ -119,31 +131,29 @@ class CellGraph:
         """
         return self.cell_df.get_column("time_minutes")
 
-    def get_y(self) -> pl.Series:
+    def get_y(self) -> pl.DataFrame:
         """
         Returns y signal. Converts to FRET signal and returns if CHANNEL2 is given.
         """
         match self.CHANNEL2:
             case "":
-                return self.cell_df.get_column(self.CHANNEL1)
+                return self.cell_df.rename({self.CHANNEL1: "signal"})
             case str():
                 y_signal_1: pl.Series = self.cell_df.get_column(self.CHANNEL1)
                 y_signal_2: pl.Series = self.cell_df.get_column(self.CHANNEL2)
-                return y_signal_1 / y_signal_2
+                return self.cell_df.with_columns(signal=y_signal_1 / y_signal_2)
 
     def get_prestarvation_df(self):
         return self.cell_df.filter(c("time_minutes") < self.STARVATION_START)
 
     def get_starvation_df(self):
-        return (self.cell_df
-                .filter(self.STARVATION_END > 
-                        c("time_minutes") >
-                        self.STARVATION_START)
-                )
+        return self.cell_df.filter(
+            self.STARVATION_END > c("time_minutes") > self.STARVATION_START
+        )
 
     def get_poststarvation_df(self):
         return self.cell_df.filter(c("time_minutes") > self.STARVATION_END)
-    
+
     def get_birth_frame(self):
         return self.cell_df[0, "frame_i"]
 
@@ -157,37 +167,17 @@ class CellGraph:
 
         match frames:
             case pl.Series():
-                return (self.cell_df.lazy()
-                        .select(["frame_i", "time_minutes"])
-                        .filter(c("frame_i").is_in(frames))
-                        .collect()
-                        .get_column("time_minutes")
-                        )
+                return (
+                    self.cell_df.lazy()
+                    .select(["frame_i", "time_minutes"])
+                    .filter(c("frame_i").is_in(frames))
+                    .collect()
+                    .get_column("time_minutes")
+                )
             case int():
                 return self.cell_df[frames, "time_minutes"]
 
-    def growth_time_at(self, frame):
-        """
-        Returns the time point at frame of x_growth.
-        """
-        return self.x_growth[frame]
-
-    def starvation_time_at_(self, frame):
-        return self.x_starvation[frame]
-
-    def growth_signal_at_(self, frame):
-        return self.y_growth[frame]
-
-    def starvation_signal_at_(self, frame):
-        return self.y_starvation[frame]
-
-    def recovery_signal_at(self, frame):
-        return self.y_recovery[frame]
-
-    def normalized_signal_at_(self, frame):
-        return self.y_normalized[frame]
-
-    def initialize_figure(self, tick_interval: float = 40) -> None:
+    def initialize_figure(self) -> None:
         """
         Initializes the cell's figure by constructing and designing the axes.
 
@@ -203,33 +193,386 @@ class CellGraph:
 
         ratio_growth = self.STARVATION_START
         ratio_starvation = self.STARVATION_END - self.STARVATION_START
-        ratio_recovery = self.EXPERIMENT_LENGTH - self.STARVATION_END
-        self.figure, (self.ax1, self.ax2, self.ax3) = plt.subplots(
+        # Experiment length seems to end with a 9, meanwhile starvation
+        # end is assumed to end with a 0. So add 1
+        ratio_recovery = self.EXPERIMENT_LENGTH - self.STARVATION_END + 1
+        ratios = [r for r in [ratio_growth, ratio_starvation, ratio_recovery] if r > 0]
+        self.figure, self.axes = plt.subplots(
             1,
-            3,
+            len(ratios),
             # sharey=True,
             gridspec_kw={  # sets the width of individual subfigures in relation to the others
-                "width_ratios": [ratio_growth, ratio_starvation, ratio_recovery]
+                "width_ratios": ratios
             },
         )
+        for i, a in enumerate(self.axes):
+            setattr(self, f"ax{i + 1}", a)
 
-        self.ax1.spines["right"].set_visible(False)
-        self.ax2.spines[["right", "left"]].set_visible(False)
-        self.ax3.spines["left"].set_visible(False)
+    def graph_full(self) -> None:
+        window_length: int = 10
+        polyorder: int = 2
+        self.cell_df: pl.DataFrame = smoothen(
+            self.cell_df, window_length=window_length, polyorder=3
+        )
+        self.cell_df: pl.DataFrame = normalize(self.cell_df, "signal_smooth")
+        x = self.cell_df["time_minutes"]
+        y = self.cell_df["signal_normalized"]
+        for ax in self.axes:
+            ax.plot(x, y, c="k")
 
-        self.ax1.yaxis.tick_left()
-        self.ax2.tick_params(left=False, labelleft=False)
-        self.ax3.yaxis.tick_right()
-        self.ax3.tick_params(labelright=False)
+    def graph_prestarvation(self) -> None:
+        if hasattr(self, "ax1"):
+            self.prestarvation: pl.DataFrame = self.cell_df.filter(
+                c("frame_i").is_in(
+                    range(0, self.STARVATION_START + self.GROWTH_INCREMENT)
+                )
+            )
+            self.prestarvation = subtract_baseline(
+                self.prestarvation, "frame_i", "signal_smooth"
+            )
+            self.prestarvation: pl.DataFrame = normalize(
+                self.prestarvation, "signal_less_bl"
+            )
+            x = self.prestarvation["time_minutes"]
+            y = self.prestarvation["signal_normalized"]
+            self.ax1.plot(
+                x,
+                y,
+                ls="--",
+                c="k",
+                alpha=0.3,
+            )
+        else:
+            print(f"WARNING: Cell {self.id} has no prestarvation phase")
 
-        d = 0.015
-        kwargs = dict(transform=self.ax1.transAxes, color="k", clip_on=False)
-        self.ax1.plot((1 - d, 1 + d), (-d, +d), **kwargs)
-        self.ax1.plot((1 - d, 1 + d), (1 - d, 1 + d), **kwargs)
-        self.ax1.set_xlim(0, self.STARVATION_START * 3)
+    def graph_starvation(self) -> None:
+        if hasattr(self, "ax2"):
+            self.starvation: pl.DataFrame = self.cell_df.filter(
+                c("frame_i").is_in(
+                    range(
+                        self.STARVATION_START - self.STARVATION_DECREMENT,
+                        self.STARVATION_END,
+                    )
+                )
+            )
+            self.starvation: pl.DataFrame = normalize(self.starvation, "signal_smooth")
+            x = self.starvation["time_minutes"]
+            y = self.starvation["signal_normalized"]
+            self.ax2.plot(
+                x,
+                y,
+                ls="--",
+                c="k",
+                alpha=0.3,
+            )
+        else:
+            print(f"WARNING: Cell {self.id} has no starvation phase")
 
-        if ratio_starvation > 0:
+    def graph_poststarvation(self) -> None:
+        if hasattr(self, "ax3"):
+            self.poststarvation: pl.DataFrame = self.cell_df.filter(
+                c("frame_i").is_in(range(self.STARVATION_END, self.lifespan.end))
+            )
+            self.poststarvation = subtract_baseline(
+                self.poststarvation, "frame_i", "signal_smooth"
+            )
+            self.poststarvation = normalize(self.poststarvation, "signal_less_bl")
+            self.ax3.plot(
+                self.poststarvation["time_minutes"],
+                self.poststarvation["signal_normalized"],
+                ls="--",
+                c="k",
+                alpha=0.3,
+            )
+        else:
+            print(f"WARNING: Cell {self.id} has no poststarvation phase")
+
+    def graph_peaks_troughs(self, SINGLE_CSV_SAVING_DIR: pathlib.Path) -> None:
+        """
+        Saves whi5 peaks and troughs in a csv and plots.
+        @param SINGLE_CSV_SAVING_DIR: pathlib.Path; path where single cell whi5
+        cycles are saved.
+        Adds the following attributes to the object:
+            self.peaks: np.ndarray; peaks of whi5
+            self.troughs: np.ndarray; troughs of whi5
+            self.whi5_cycles: pl.DataFrame; Data of Whi5 cycling
+            self.paired_troughs: np.ndarray; troughs following peaks.
+        """
+        if hasattr(self, "ax1"):
+            self.peaks: np.ndarray = self.get_peaks()
+            self.troughs: np.ndarray = self.get_troughs()
+            self.paired_troughs: np.ndarray = self.get_paired_troughs()
+            self.whi5_cycles: pl.DataFrame = self.save_whi5_cycles(
+                SINGLE_CSV_SAVING_DIR
+            )
+            if self.id == 25:
+                print(self.prestarvation, self.peaks, self.paired_troughs)
+            self.ax1.plot(
+                self.cell_df[self.peaks, "time_minutes"],
+                self.cell_df[self.peaks, "signal_normalized"],
+                "^",
+            )
+            self.ax1.plot(
+                self.cell_df[self.paired_troughs, "time_minutes"],
+                self.cell_df[self.paired_troughs, "signal_normalized"],
+                "v",
+            )
+
+    def get_peaks(self) -> np.ndarray:
+        """
+        Returns beginning of Whi5 export.
+        @param distance: int; smallest amount of frames between two peaks
+        """
+        pre_wo_increment = self.prestarvation  # [: -self.GROWTH_INCREMENT]
+        peaks: np.ndarray = np.array(
+            scipy.signal.find_peaks(
+                pre_wo_increment["signal_normalized"], prominence=0.2
+            )[0]
+        )
+        # proms = scipy.signal.peak_prominences(self.y_growth, peaks)[0]
+        # contour_heights = self.y_growth[peaks] - proms
+        # self.ax1.vlines(x=(peaks + self.birth_frame)*3, ymax = self.y_growth[peaks], ymin = contour_heights)
+        return peaks
+
+    def get_troughs(self) -> np.ndarray:
+        """
+        Returns end of Whi5 export.
+        Adds the following attributes to the object:
+            self.d1y_growth: np.ndarray; first derivative of y_growth
+        """
+        self.prestarvation: pl.DataFrame = derive(self.prestarvation, 1)
+        raw_troughs = np.nonzero(np.diff(np.sign(self.prestarvation["signal_d1y"])))[0]
+        troughs = self.look_forward(raw_troughs)
+        # extra trough is needed in case no trough is found after last peak
+        troughs = np.append(troughs, self.STARVATION_START - self.lifespan.start - 1)
+        return troughs
+
+    def look_forward(self, troughs: np.ndarray) -> np.ndarray:
+        """ """
+        d1y = self.prestarvation["signal_d1y"].to_numpy()
+        filtered_troughs = []
+        slopes_min = np.min(d1y)
+        for t in troughs:
+            # Supposed to find real troughs.
+            # Checks the next slope_index points
+            # to see if they are not bigger than slopes_min * slope_multiplier.
+            # This way, the troughs that are followed by steep downward slopes
+            # are removed.
+            if not np.any(
+                d1y[t + 1 : t + self.slope_index] < slopes_min * self.slope_multiplier
+            ):
+                filtered_troughs.append(t)
+        return np.round(np.array(filtered_troughs)).astype(int)
+
+    def save_whi5_cycles(self, SINGLE_CSV_SAVING_DIR: pathlib.Path) -> pl.DataFrame:
+        """
+        Pairs troughs to previously occuring peaks. Saves peaks and troughs into
+        csv.
+        Returns pl.DataFrame of peaks and troughs
+        @param SINGLE_CSV_SAVING_DIR: pathlib.Path; path where single cell whi5 cycles are saved.
+        """
+        cycler: defaultdict = defaultdict(list)
+
+        for i, p in enumerate(self.peaks):
+            if i >= self.paired_troughs.size:
+                break
+            cycler["Cell_ID"].append(self.id)
+            cycler["Maxima_Index"].append(p)
+            cycler["Minima_Index"].append(self.paired_troughs[i])
+            cycler["Maxima_Time(min)"].append(p * self.IMAGING_RATE)
+            cycler["Minima_Time(min)"].append(self.troughs[i] * self.IMAGING_RATE)
+
+        whi5_cycles: pl.DataFrame = pl.DataFrame(cycler)
+        path: pathlib.Path = SINGLE_CSV_SAVING_DIR / f"Whi5_CV_{self.id}.csv"
+        whi5_cycles.write_csv(path)
+
+        return whi5_cycles
+
+    def get_paired_troughs(self) -> np.ndarray:
+        """
+        Gets paired troughs
+        """
+        paired_troughs = []
+        trough_index = 0
+        troughs_size = len(self.troughs)
+        for i in range(self.peaks.size):
+            while True:
+                if trough_index >= troughs_size:
+                    self.peaks = self.peaks[:i]
+                    break
+                if self.troughs[trough_index] > self.peaks[i]:
+                    paired_troughs.append(self.troughs[trough_index])
+                    break
+                trough_index += 1
+
+        return np.array(paired_troughs)
+
+    def graph_whi5_exports(self) -> None:
+        """
+        Graphs the last Whi5 export.
+        """
+        if hasattr(self, "ax1"):
+            if self.peaks.size > 0:
+                d1y = self.prestarvation["signal_d1y"]
+                x = self.prestarvation["time_minutes"]
+                print(self.peaks[-1], self.paired_troughs[-1])
+                if self.peaks.size > 0 and self.paired_troughs.size > 0:
+                    d1y_last_peak = d1y[
+                        self.peaks[-1] : self.paired_troughs[-1]
+                    ].to_numpy()
+                    x_last_peak = x[self.peaks[-1] : self.paired_troughs[-1]].to_numpy()
+                    average_inflp = self.approximate_inflp(x_last_peak, d1y_last_peak)
+                    self.ax1.vlines(average_inflp, ymin=0, ymax=1, color="b")
+                    self.ax1.text(
+                        average_inflp + 5,
+                        0.95,
+                        str(round(average_inflp, 2)),
+                        rotation=90,
+                    )
+
+    def graph_half_reimport(self) -> None:
+        """
+        Finds the Whi5 reimport start and end, the inflection point between them
+        and plots.
+        """
+        if hasattr(self, "ax2"):
+            trough: int = self.get_reimport_onset(factor=0.005)
+            peak: int = self.get_reimport_peak(0.6)
+            if peak > trough:
+                inflection_point = self.approximate_inflp(
+                    self.starvation[trough : peak + 1, "time_minutes"].to_numpy(),
+                    derive(self.starvation[trough : peak + 1], 1, "signal_normalized")[
+                        "time_minutes"
+                    ].to_numpy(),
+                )
+                self.ax2.plot(
+                    self.cell_df[
+                        self.STARVATION_START
+                        - self.lifespan.start
+                        + peak
+                        - self.STARVATION_DECREMENT,
+                        "time_minutes",
+                    ],
+                    self.cell_df[
+                        self.STARVATION_START
+                        - self.lifespan.start
+                        + peak
+                        - self.STARVATION_DECREMENT,
+                        "signal_normalized",
+                    ],
+                    "+",
+                )
+                self.ax2.plot(
+                    self.cell_df[
+                        self.STARVATION_START
+                        - self.lifespan.start
+                        + trough
+                        - self.STARVATION_DECREMENT,
+                        "time_minutes",
+                    ],
+                    self.cell_df[
+                        self.STARVATION_START
+                        - self.lifespan.start
+                        + trough
+                        - self.STARVATION_DECREMENT,
+                        "signal_normalized",
+                    ],
+                    "+",
+                )
+
+                self.ax2.vlines(
+                    inflection_point,
+                    ymin=0,
+                    ymax=1,
+                    color="b",
+                )
+                self.ax2.text(
+                    inflection_point + 5,
+                    0.95,
+                    str(int(round(inflection_point, 2))),
+                    rotation=90,
+                )
+
+    def approximate_inflp(
+        self, x_between_peaks: np.ndarray, d1y_between_peaks: np.ndarray
+    ) -> int:
+        """
+        Approximates the inflection point of a segment.
+        Returns the time at inflection.
+        """
+        weights = d1y_between_peaks / np.sum(d1y_between_peaks)
+        cum_weights = np.cumsum(weights)
+        average_infl = np.searchsorted(cum_weights, 0.5)
+        return x_between_peaks[average_infl]
+
+    def get_reimport_peak(self, factor: float) -> int:
+        """
+        Gets the approximate end of Whi5 reimport during starvation.
+        """
+        peaks: np.ndarray = (
+            scipy.signal.find_peaks(
+                self.starvation["signal_normalized"], prominence=0.03
+            )
+        )[0]
+        for p in peaks:
+            if self.starvation[p.item(), "signal_normalized"] > factor:
+                return p.item()
+        return -1
+
+    def get_reimport_onset(self, factor: float) -> int:
+        """
+        Gets the approximate start of Whi5 reimport during starvation.
+        """
+        interval = 5
+        if self.starvation.height > 1:
+            sig_starv = self.starvation["signal_normalized"]
+            for idx in range(self.starvation.height - interval):
+                if (
+                    sig_starv[idx + interval]
+                    > (1 + factor * sig_starv[idx]) ** interval * sig_starv[idx]
+                    and np.diff(sig_starv[idx : idx + 2]) > 0
+                ):
+                    return idx
+        return -1
+
+    def format_figure(self):
+        plt.xticks(
+            np.arange(0, self.lifespan.end * self.IMAGING_RATE, 40),
+            rotation=75,
+        )
+        self.format_ax1()
+        self.format_ax2()
+        self.format_ax3()
+        self.figure.supxlabel("Time (mins)")
+        self.figure.supylabel("Norm. Whi5 CV from Full Cell Mask")
+        self.figure.suptitle("Norm. Whi5 CV from Full Cell Mask")
+
+    def format_ax1(self):
+        if hasattr(self, "ax1"):
+            self.ax1.spines["right"].set_visible(False)
+            self.ax1.yaxis.tick_left()
+            d = 0.015
+            kwargs = dict(transform=self.ax1.transAxes, color="k", clip_on=False)
+            self.ax1.plot((1 - d, 1 + d), (-d, +d), **kwargs)
+            self.ax1.plot((1 - d, 1 + d), (1 - d, 1 + d), **kwargs)
+            self.ax1.set_xticks(
+                np.arange(
+                    0,
+                    (self.STARVATION_START + self.GROWTH_INCREMENT) * self.IMAGING_RATE,
+                    50,
+                ),
+            )
+            self.ax1.tick_params(axis="x", labelrotation=75)
+            self.ax1.set_xlim(0, (self.GROWTH_INCREMENT + self.STARVATION_START) * 3)
+
+    def format_ax2(self):
+        if hasattr(self, "ax2"):
+            d = 0.015
             kwargs = dict(transform=self.ax2.transAxes, color="k", clip_on=False)
+            ratio_growth = self.STARVATION_START
+            ratio_starvation = self.STARVATION_END - self.STARVATION_START
+            self.ax2.spines["left"].set_visible(False)
+            self.ax2.tick_params(left=False, labelleft=False)
             self.ax2.plot(
                 (
                     -d * ratio_growth / ratio_starvation,
@@ -246,25 +589,41 @@ class CellGraph:
                 (-d, +d),
                 **kwargs,
             )
-            self.ax2.plot(
-                (
-                    1 - d * ratio_growth / ratio_starvation,
-                    1 + d * ratio_growth / ratio_starvation,
-                ),
-                (-d, +d),
-                **kwargs,
+            self.ax2.set_xlim(
+                (self.STARVATION_START - self.STARVATION_DECREMENT) * self.IMAGING_RATE,
+                self.STARVATION_END * self.IMAGING_RATE,
             )
-            self.ax2.plot(
-                (
-                    1 - d * ratio_growth / ratio_starvation,
-                    1 + d * ratio_growth / ratio_starvation,
+            self.ax2.set_xticks(
+                np.arange(
+                    (self.STARVATION_START - self.STARVATION_DECREMENT)
+                    * self.IMAGING_RATE,
+                    self.STARVATION_END * self.IMAGING_RATE,
+                    50,
                 ),
-                (1 - d, 1 + d),
-                **kwargs,
             )
-            self.ax2.set_xlim(self.x_starvation[0], self.x_starvation[-1])
+            self.ax2.tick_params(axis="x", labelrotation=75)
 
-        if ratio_recovery > 0:
+    def format_ax3(self):
+        ratio_growth = self.STARVATION_START
+        ratio_starvation = self.STARVATION_END - self.STARVATION_START
+        ratio_recovery = self.EXPERIMENT_LENGTH - self.STARVATION_END
+        d = 0.015
+        if hasattr(self, "ax3"):
+            kwargs = dict(transform=self.ax3.transAxes, color="k", clip_on=False)
+
+            self.ax3.spines["left"].set_visible(False)
+            self.ax3.yaxis.tick_right()
+            self.ax3.tick_params(labelright=False)
+            self.ax3.set_xlim(self.STARVATION_END * self.IMAGING_RATE, self.EXPERIMENT_LENGTH * self.IMAGING_RATE)
+            self.ax3.set_xticks(
+                np.arange(
+                    self.STARVATION_END * self.IMAGING_RATE,
+                    self.EXPERIMENT_LENGTH * self.IMAGING_RATE,
+                    50,
+                ),
+            )
+            self.ax3.tick_params(axis="x", labelrotation=75)
+            d = 0.015
             kwargs = dict(transform=self.ax3.transAxes, color="k", clip_on=False)
             self.ax3.plot(
                 (
@@ -282,284 +641,32 @@ class CellGraph:
                 (-d, +d),
                 **kwargs,
             )
-            self.ax3.set_xlim(self.x_recovery[0], self.x_recovery[-1])
-
-        self.figure.supxlabel("Time (mins)")
-        self.figure.supylabel("Norm. Whi5 CV from Full Cell Mask")
-        self.figure.suptitle("Norm. Whi5 CV from Full Cell Mask")
-
-        plt.xticks(
-            np.arange(0, self.death_frame * self.IMAGING_RATE, tick_interval),
-            rotation=90,
-        )
-
-    def graph_base(self) -> None:
-        """
-        Graphs x and y.
-
-        Adds the following attributes to the object:
-            self.y_growth: np.ndarray; y within growth phase. Dimensions
-            correspond to self.x_growth. Smoothened, baseline removed and
-            normalized to 1.
-            self.y_starvation: np.ndarray; y within starvation phase. Dimensions
-            correspond to self.x_starvation. Smoothened, interval minimum y
-            removed and normalized to 1.
-            self.y_recovery: np.ndarray; y within recovery phase. Only applies
-            if experiment extends into recovery phase. Dimensions correspond
-            self.x_recovery. Smoothened, baseline removed and normalized to 1.
-            self.y_normalized: np.ndarray; y throughout the experiment.
-            Dimensions correspond to self.x. smoothened, minimum removed and
-            normalized to 1.
-        """
-        # subtract_baseline fails to run if length of x_growth is 1
-        window_length = 10
-        polyorder = 2
-        y_full = smoothen(self.y, window_length=window_length, polyorder=polyorder)
-        y_growth = smoothen(
-            self.y[: self.starvation_start + self.GROWTH_INCREMENT],
-            window_length=window_length,
-            polyorder=polyorder,
-        )
-        y_growth_less_bl = subtract_baseline(self.x_growth, y_growth)
-        y_starvation = smoothen(
-            self.y[
-                self.starvation_start - self.STARVATION_DECREMENT : self.starvation_end
-            ],
-            window_length=window_length,
-            polyorder=3,
-        )
-
-        self.y_normalized: np.ndarray = normalize(y_full)
-        self.y_growth: np.ndarray = normalize(y_growth_less_bl)
-        self.y_starvation: np.ndarray = normalize(y_starvation)
-
-        plt.ylim(-0.1, 1.1)
-        self.ax1.plot(self.x, self.y_normalized, c="k")
-        self.ax2.plot(self.x, self.y_normalized, c="k")
-        self.ax1.plot(self.x_growth, self.y_growth, ls="--", c="k", alpha=0.3)
-        self.ax2.plot(self.x_starvation, self.y_starvation, ls="--", c="k", alpha=0.3)
-        if self.starvation_end + self.birth_frame < self.EXPERIMENT_LENGTH:
-            y_recovery = smoothen(
-                self.y[self.starvation_end : self.lifespan + 1],
-                window_length=window_length,
-                polyorder=polyorder,
-            )
-            y_recovery_less_bl = subtract_baseline(self.x_recovery, y_recovery)
-            self.y_recovery: np.ndarray = normalize(y_recovery_less_bl)
-            self.ax3.plot(self.x_recovery, self.y_recovery, ls="--", c="k", alpha=0.3)
-            self.ax3.plot(self.x, self.y_normalized, "k")
-            self.ax3.set_xlim(self.x_recovery[0], self.x_recovery[-1])
-
-    def graph_peaks_troughs(self, SINGLE_CSV_SAVING_DIR: pathlib.Path) -> None:
-        """
-        Saves whi5 peaks and troughs in a csv and plots.
-        @param SINGLE_CSV_SAVING_DIR: pathlib.Path; path where single cell whi5 
-        cycles are saved.
-        Adds the following attributes to the object:
-            self.peaks: np.ndarray; peaks of whi5
-            self.troughs: np.ndarray; troughs of whi5
-            self.whi5_cycles: pl.DataFrame; Data of Whi5 cycling
-            self.paired_troughs: np.ndarray; troughs following peaks.
-        """
-        self.peaks: np.ndarray = self.get_peaks()
-        self.troughs: np.ndarray = self.get_troughs()
-        self.whi5_cycles: pl.DataFrame = self.save_whi5_cycles(SINGLE_CSV_SAVING_DIR)
-        self.paired_troughs: np.ndarray = self.get_paired_troughs()
-        self.ax1.plot(self.x[self.peaks], self.y_normalized[self.peaks], "^")
-        self.ax1.plot(
-            self.x[self.paired_troughs], self.y_normalized[self.paired_troughs], "v"
-        )
-
-    def get_peaks(self) -> np.ndarray:
-        """
-        Returns beginning of Whi5 export.
-        @param distance: int; smallest amount of frames between two peaks
-        """
-        peaks: np.ndarray = np.array(
-            scipy.signal.find_peaks(
-                self.y_growth[: -self.GROWTH_INCREMENT], prominence=0.2
-            )[0]
-        )
-        # proms = scipy.signal.peak_prominences(self.y_growth, peaks)[0]
-        # contour_heights = self.y_growth[peaks] - proms
-        # self.ax1.vlines(x=(peaks + self.birth_frame)*3, ymax = self.y_growth[peaks], ymin = contour_heights)
-        return peaks
-
-    def get_troughs(self) -> np.ndarray:
-        """
-        Returns end of Whi5 export.
-        Adds the following attributes to the object:
-            self.d1y_growth: np.ndarray; first derivative of y_growth
-        """
-        self.d1y_growth: np.ndarray = derive(self.y_growth, 1)
-        raw_troughs = np.nonzero(np.diff(np.sign(self.d1y_growth)))[0]
-        troughs = self.look_forward(raw_troughs)
-        # extra trough is needed in case no trough is found after last peak
-        troughs = np.append(troughs, self.starvation_start - 1)
-        return troughs
-
-    def look_forward(self, troughs: np.ndarray) -> np.ndarray:
-        """
-        Removes troughs if they are located within the whi5 export interval.
-        """
-        filtered_troughs = []
-        slopes_min = np.min(self.d1y_growth)
-        for t in troughs:
-            if not np.any(
-                self.d1y_growth[t + 1 : t + self.slope_index]
-                < slopes_min * self.slope_multiplier
-            ):
-                filtered_troughs.append(t)
-        return np.round(np.array(filtered_troughs)).astype(int)
-
-    def save_whi5_cycles(self, SINGLE_CSV_SAVING_DIR: pathlib.Path) -> pl.DataFrame:
-        """
-        Pairs troughs to previously occuring peaks. Saves peaks and troughs into
-        csv.
-        Returns pl.DataFrame of peaks and troughs
-        @param SINGLE_CSV_SAVING_DIR: pathlib.Path; path where single cell whi5 cycles are saved.
-        """
-        min_idx: int = 0
-        cycler: defaultdict = defaultdict(list)
-
-        for x in self.peaks:
-            try:
-                while x + 2 > self.troughs[min_idx]:
-                    min_idx += 1
-                cycler["Maxima_Index"].append(x)
-                cycler["Minima_Index"].append(self.troughs[min_idx])
-                cycler["Cell_ID"].append(self.id)
-                cycler["Maxima_Time(min)"].append(x * self.IMAGING_RATE)
-                cycler["Minima_Time(min)"].append(
-                    self.troughs[min_idx] * self.IMAGING_RATE
+            if hasattr(self, "ax2"):
+                self.ax2.spines["right"].set_visible(False)
+                kwargs = dict(transform=self.ax2.transAxes, color="k", clip_on=False)
+                self.ax2.plot(
+                    (
+                        1 - d * ratio_growth / ratio_starvation,
+                        1 + d * ratio_growth / ratio_starvation,
+                    ),
+                    (-d, +d),
+                    **kwargs,
                 )
-            except IndexError:
-                break
-
-        whi5_cycles: pl.DataFrame = pl.DataFrame(cycler)
-        path: pathlib.Path = SINGLE_CSV_SAVING_DIR / f"Whi5_CV_{self.id}.csv"
-        whi5_cycles.write_csv(path, separator=",")
-
-        return whi5_cycles
-
-    def get_paired_troughs(self) -> np.ndarray:
-        """
-        Gets paired troughs
-        """
-        try:
-            return self.whi5_cycles["Minima_Index"].to_numpy()
-        except pl.exceptions.ColumnNotFoundError:
-            return np.array([0])
-
-    def graph_whi5_exports(self) -> None:
-        """
-        Graphs the last Whi5 export.
-        """
-        if self.peaks.size > 0:
-            d1y_last_peak = self.d1y_growth[self.peaks[-1] : self.paired_troughs[-1]]
-            average_inflp = self.average_inflp(
-                self.x_growth[self.peaks[-1] : self.paired_troughs[-1]], d1y_last_peak
-            )
-            self.ax1.vlines(average_inflp, ymin=0, ymax=1, color="b")
-            self.ax1.text(
-                average_inflp + 5,
-                0.95,
-                str(round(average_inflp, 2)),
-                rotation=90,
-            )
-
-    def graph_half_reimport(self) -> None:
-        """
-        Finds the Whi5 reimport start and end, the inflection point between them
-        and plots.
-        """
-        trough: int = self.get_reimport_onset(factor=0.005)
-        peak: int = self.get_reimport_peak(0.6)
-        if trough >= 0 and peak >= 0:
-            inflection_point = self.average_inflp(
-                self.x_starvation[trough : peak + 1],
-                derive(self.y_starvation[trough : peak + 1], 1),
-            )
-            self.ax2.plot(
-                self.time_at_(self.starvation_start + peak - self.STARVATION_DECREMENT),
-                self.normalized_signal_at_(
-                    self.starvation_start + peak - self.STARVATION_DECREMENT
-                ),
-                "+",
-            )
-            self.ax2.plot(
-                self.x[self.starvation_start + trough - self.STARVATION_DECREMENT],
-                self.normalized_signal_at_(
-                    self.starvation_start + trough - self.STARVATION_DECREMENT
-                ),
-                "+",
-            )
-
-            self.ax2.vlines(
-                inflection_point,
-                ymin=0,
-                ymax=1,
-                color="b",
-            )
-            self.ax2.text(
-                inflection_point + 5,
-                0.95,
-                str(int(round(inflection_point, 2))),
-                rotation=90,
-            )
-
-    def average_inflp(
-        self, x_between_peaks: np.ndarray, d1y_between_peaks: np.ndarray
-    ) -> int:
-        """
-        Approximates the inflection point of a segment.
-        Returns the time at inflection.
-        """
-        weights = d1y_between_peaks / np.sum(d1y_between_peaks)
-        cum_weights = np.cumsum(weights)
-        average_infl = np.searchsorted(cum_weights, 0.5)
-        return x_between_peaks[average_infl]
-
-    def get_reimport_peak(self, factor: float) -> int:
-        """
-        Gets the approximate end of Whi5 reimport during starvation.
-        """
-        peaks: np.ndarray = (
-            scipy.signal.find_peaks(self.y_starvation, prominence=0.03)
-        )[0]
-        for p in peaks:
-            if self.starvation_signal_at_(p) > factor:
-                return p
-        return -1
-
-    def get_reimport_onset(self, factor: float) -> int:
-        """
-        Gets the approximate start of Whi5 reimport during starvation.
-        Adds the following attributes to the object:
-            self.d1y_starvation: np.ndarray; the derivative of self.y_starvation.
-        """
-        interval = 5
-        if self.y_starvation.size > 1:
-            self.d1y_starvation = derive(self.y_starvation, 1)
-            #    self.ax2.plot(self.x_starvation, self.d1y_starvation, ls="--", c="b")
-            for idx in range(self.y_starvation.size - interval):
-                if (
-                    self.starvation_signal_at_(idx + interval)
-                    > (1 + factor * self.starvation_signal_at_(idx)) ** interval
-                    * self.starvation_signal_at_(idx)
-                    and np.diff(self.y_starvation[idx : idx + 2]) > 0
-                ):
-                    return idx
-        return -1
+                self.ax2.plot(
+                    (
+                        1 - d * ratio_growth / ratio_starvation,
+                        1 + d * ratio_growth / ratio_starvation,
+                    ),
+                    (1 - d, 1 + d),
+                    **kwargs,
+                )
 
     def save_figure(self, PATH_TO_FIGURES: pathlib.Path):
         """
         Saves the figure.
         @param PATH_TO_FIGURES: pathlib.Path;
         """
-        self.ax3.set_yticks(np.arange(0,1,0.1))
-        self.ax1.set_yticks(np.arange(0,1,0.1))
-        print([t.get_text() for t in self.ax1.get_yticklabels()])
+        plt.tight_layout()
         self.figure.savefig(
             PATH_TO_FIGURES / f"Cell_{self.id}_Whi5_CV.png",
             bbox_inches="tight",

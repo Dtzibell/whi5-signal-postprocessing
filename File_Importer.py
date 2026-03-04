@@ -40,7 +40,7 @@ class MainWindow(QMainWindow):
         self.input_layout = QVBoxLayout()
         self.cross_val_layout = QVBoxLayout()
         #### initialize the window ####
-        
+
         #### create input widgets ####
         # data button
         self.select_data_file = QPushButton("Select file")
@@ -78,7 +78,9 @@ class MainWindow(QMainWindow):
         # fluorophore channels
         self.fluorophore_channel_1 = QComboBox()
         self.fluorophore_channel_1.setEditable(True)
-        choices = [s.strip() for s in self.config["FLUORESCENCE"]["SignalChoices"].split(",")]
+        choices = [
+            s.strip() for s in self.config["FLUORESCENCE"]["SignalChoices"].split(",")
+        ]
         self.fluorophore_channel_1.addItems(choices)
         self.fluorophoreCompleter = QCompleter(choices)
         self.fluorophore_channel_1.setCompleter(self.fluorophoreCompleter)
@@ -152,9 +154,11 @@ class MainWindow(QMainWindow):
 
         #### load input presets from config.ini ####
         self.starvation_start_frame.setValue(
-                int(self.config["INPUT_PRESETS"]["StarvationStartFrame"]))
+            int(self.config["INPUT_PRESETS"]["StarvationStartFrame"])
+        )
         self.starvation_end_frame.setValue(
-                int(self.config["INPUT_PRESETS"]["StarvationEndFrame"]))
+            int(self.config["INPUT_PRESETS"]["StarvationEndFrame"])
+        )
         #### load input presets from config.ini ####
 
     def open_file_selection(self):
@@ -169,10 +173,8 @@ class MainWindow(QMainWindow):
             default_dir,
             "*.csv",
         )
-        print(
-            file_dialog
-        )  # output: list: [0] list of paths as strings, 
-           # [1] type of files as string (ex. "*.csv")
+        print(file_dialog)  # output: list: [0] list of paths as strings,
+        # [1] type of files as string (ex. "*.csv")
         for path in file_dialog[0]:
             self.selected_files.append(
                 pathlib.Path(path)
